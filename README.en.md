@@ -44,8 +44,9 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `dsh-safe <dsh args…>` | wrap and run dsh (swap `dsh` for `dsh-safe`) |
 | `dsh-safe -u [update options] [dsh args…]` | upgrade dsh and dsh-safe itself first (skip if latest), then boot in wrap mode; `--update` is an alias |
 | `dsh-safe update [options]` | upgrade only, no boot — options below |
-| `dsh-safe list [--profile <name>]` | show quarantined plugins (defaults to all profiles) |
-| `dsh-safe restore --profile <name> (--id <id> \| --all) [--dry-run]` | re-enable auto-disabled plugins (after a fixed plugin upgrade) |
+| `dsh-safe list [--profile <name>] [--json]` | show quarantined plugins (`--json` outputs structured JSON; defaults to all profiles) |
+| `dsh-safe doctor` | environment check: versions, DSH_HOME, profiles, ledger, patch health |
+| `dsh-safe restore [--profile <name>] (--id <id> \| --all) [--dry-run]` | re-enable auto-disabled plugins (omit `--profile` to cover every profile in the ledger) |
 | `dsh-safe explain [--file <path>]` | interpret a failed-boot stderr with AI (read-only, needs `DSH_SAFE_AI_KEY`) |
 | `dsh-safe help` (`-h` / `--help`) | show help |
 | `dsh-safe --version` (`-V`) | show version |
@@ -59,6 +60,7 @@ Every short flag has an equivalent long form (`-u` = `--update`, `-y` = `--yes`,
 | `--dry-run` | Parse and report only; no files are modified |
 | `--max-retries <n>` | Max startup retries after an auto-quarantine (default 2; `0` means pass through without quarantining) |
 | `--allow-first-party` | Allow auto-disabling first-party `@deepseek-ai/*` plugins (skipped by default; handle manually) |
+| `--exclude <id-or-pkg>` | Quarantine exclusion list (repeatable) — matched rows are never auto-disabled; can also live in `config.json` |
 
 ### update / -u options (after `-u` or `update`; wrapper flags before the dsh args still apply)
 

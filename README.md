@@ -44,8 +44,9 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `dsh-safe <dsh 参数…>` | 包装运行 dsh（把平时的 `dsh` 换成 `dsh-safe`） |
 | `dsh-safe -u [update 选项] [dsh 参数…]` | 先升级 dsh 与 dsh-safe 自身（已最新则跳过），再按包装模式启动；`--update` 等价 |
 | `dsh-safe update [选项]` | 只升级不启动，选项见下 |
-| `dsh-safe list [--profile <名>]` | 查看隔离名单（缺省列出全部 profile） |
-| `dsh-safe restore --profile <名> (--id <id> \| --all) [--dry-run]` | 恢复被自动禁用的插件（升级修复后使用） |
+| `dsh-safe list [--profile <名>] [--json]` | 查看隔离名单（`--json` 输出结构化 JSON，缺省全部 profile） |
+| `dsh-safe doctor` | 环境体检：版本、DSH_HOME、profiles、台账、各 patch 健康度 |
+| `dsh-safe restore [--profile <名>] (--id <id> \| --all) [--dry-run]` | 恢复被自动禁用的插件（省略 `--profile` 时遍历台账全部 profile） |
 | `dsh-safe explain [--file <路径>]` | 用 AI 解读一段启动失败 stderr（纯只读，需 `DSH_SAFE_AI_KEY`） |
 | `dsh-safe help`（`-h` / `--help`） | 显示帮助 |
 | `dsh-safe --version`（`-V`） | 显示版本 |
@@ -59,6 +60,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `--dry-run` | 只解析与报告，不修改任何文件 |
 | `--max-retries <n>` | 自动隔离后最多重试启动的次数（默认 2；`0` 表示不隔离只透传） |
 | `--allow-first-party` | 允许自动禁用 `@deepseek-ai/*` 第一方插件（默认跳过，需手动处理） |
+| `--exclude <id或包名>` | 隔离豁免名单（可重复），命中的行永不自动禁用；也可写进 `config.json` |
 
 ### update / -u 选项（写在 `-u` 或 `update` 之后；其前的包装旗标照常生效）
 
