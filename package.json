@@ -1,0 +1,32 @@
+{
+  "name": "@hyzyn/dsh-safe",
+  "version": "0.1.0",
+  "description": "dsh 启动保险丝：社区插件不兼容导致 dsh 启动失败时，自动禁用坏插件并重试",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "dsh-safe": "bin/dsh-safe.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hyzyn/dsh-safe.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "quarantine",
+    "boot"
+  ]
+}
