@@ -39,6 +39,8 @@ dsh-safe <dsh 参数…>             包装运行 dsh
 dsh-safe list [--profile <名>]    查看隔离名单（缺省列出全部 profile）
 dsh-safe restore --profile <名> (--id <id> | --all) [--dry-run]
                                   恢复被自动禁用的插件（升级修复后使用）
+dsh-safe update [-y] [--to <版本>] [--no-restore] [--pm npm|pnpm]
+                                  升级 dsh，并自动恢复被隔离的插件
 dsh-safe help
 ```
 
@@ -49,6 +51,8 @@ dsh-safe help
 | `--dry-run` | 只解析与报告，不修改任何文件 |
 | `--max-retries <n>` | 自动隔离后最多重试启动的次数（默认 2；`0` 表示不隔离只透传） |
 | `--allow-first-party` | 允许自动禁用 `@deepseek-ai/*` 第一方插件（默认跳过，需手动处理） |
+
+升级 dsh：`dsh-safe update` 自动探测 dsh 的包名与安装方式（npm / pnpm 全局安装）、对比最新版本后代跑升级，完成后自动恢复所有被隔离的插件——新 dsh 下仍不兼容的会在下次启动时再次被自动隔离。`--to <版本>` 指定目标版本（也是回滚方式），`--no-restore` 跳过恢复，`-y` 跳过确认。
 
 提示信息语言跟随 `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE`（`zh*` 为中文，其余英文），也可用环境变量 `DSH_SAFE_LANG=zh|en` 强制指定。
 

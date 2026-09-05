@@ -39,6 +39,8 @@ dsh-safe <dsh args…>              wrap and run dsh
 dsh-safe list [--profile <name>]  show quarantined plugins (defaults to all profiles)
 dsh-safe restore --profile <name> (--id <id> | --all) [--dry-run]
                                   re-enable auto-disabled plugins (after a fixed plugin upgrade)
+dsh-safe update [-y] [--to <ver>] [--no-restore] [--pm npm|pnpm]
+                                  upgrade dsh and auto-restore quarantined plugins
 dsh-safe help
 ```
 
@@ -49,6 +51,8 @@ Wrapper-mode options (must come before the profile / subcommand):
 | `--dry-run` | Parse and report only; no files are modified |
 | `--max-retries <n>` | Max startup retries after an auto-quarantine (default 2; `0` means pass through without quarantining) |
 | `--allow-first-party` | Allow auto-disabling first-party `@deepseek-ai/*` plugins (skipped by default; handle manually) |
+
+Upgrading dsh: `dsh-safe update` auto-detects the dsh package name and install method (npm / pnpm global installs), compares against the latest version and runs the upgrade for you, then automatically restores all quarantined plugins — any still incompatible under the new dsh will be auto-quarantined again on the next start. `--to <version>` pins a target version (also how you roll back), `--no-restore` skips the restore, `-y` skips the confirmation.
 
 Messages follow `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE` (`zh*` → Chinese, otherwise English); force with `DSH_SAFE_LANG=zh|en`.
 
