@@ -17,9 +17,15 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm ci
       - run: npm test
-      - run: npm publish --access public
+      - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::warning::NPM_TOKEN secret not configured; skipping npm publish (publish manually with npm publish)"
+            exit 0
+          fi
+          npm publish --access public
       - name: Create GitHub release
         run: gh release create "$GITHUB_REF_NAME" --generate-notes || true
         env:

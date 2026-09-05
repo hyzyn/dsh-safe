@@ -67,6 +67,7 @@ Every short flag has an equivalent long form (`-u` = `--update`, `-y` = `--yes`,
 | `--to <version>` | Target dsh version, also how you roll back (explicit downgrades allowed); dsh-safe itself always upgrades to the latest |
 | `--self` | Update dsh-safe itself only; dsh and quarantine state untouched |
 | `--no-restore` | Do not auto-restore quarantined plugins after upgrading dsh |
+| `--no-verify` | Skip the post-upgrade parser self-check (boots the new dsh with a throwaway profile to confirm error recognition still works) |
 | `--pm <npm\|pnpm>` | Force the package manager (auto-detected by default) |
 
 ### Environment variables
@@ -98,7 +99,7 @@ How upgrading works: `dsh-safe update` auto-detects the dsh package name and ins
 - If the patch file itself fails YAML parsing (e.g. broken by hand-editing), plugins cannot be identified and the failure is passed through.
 - Rows inserted via `--patch` overlay layers are not part of the mapping (only the profile patch, the home patch and bundle patches are scanned).
 - To capture stderr, the wrapper pipes dsh's stderr (content is still echoed to the terminal in real time); stdout/stdin pass through unaffected.
-- Match patterns target the dsh 0.1.x error formats; a major dsh upgrade that changes them requires updating the parser.
+- Match patterns target the dsh 0.1.x error formats; a major dsh upgrade that changes them requires updating the parser. Mitigation: after update/-u upgrades dsh it runs a parser self-check — boots the new dsh with a throwaway profile and confirms failures are still recognized, warning right away on mismatch (`--no-verify` skips it).
 - Windows is best-effort: update / --self / list / restore are adapted (.cmd shim parsing, shelled npm/pnpm invocations); the wrapped boot resolves the node entry embedded in dsh's .cmd/.ps1 shim on PATH and spawns `node <entry>` directly (.exe runs as-is, unparseable shims fall back to a shelled spawn), sidestepping Node's ban on spawning .cmd files. Not yet verified end-to-end on a real Windows machine — feedback welcome.
 
 ## Development

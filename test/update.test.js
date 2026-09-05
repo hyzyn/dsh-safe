@@ -140,7 +140,7 @@ const cleanup = (home) => rmSync(home, { recursive: true, force: true })
 test('update：升级 → 自动恢复隔离 → 提示回滚', async () => {
   const fx = makeFixture()
   try {
-    const result = runUpdate(fx, ['-y'])
+    const result = runUpdate(fx, ['-y', '--no-verify'])
     assert.equal(result.status, 0, `stderr: ${result.stderr}`)
     // 计划与安装命令
     assert.ok(result.stderr.includes(`dsh ${PKG} ${OLD_VERSION} → ${NEW_VERSION} (npm)`))
@@ -196,7 +196,7 @@ test('update：非交互环境缺 -y 时拒绝执行', async () => {
 test('update：--to 指定目标版本（兼作回滚）', async () => {
   const fx = makeFixture()
   try {
-    const result = runUpdate(fx, ['-y', '--to', '8.8.8'])
+    const result = runUpdate(fx, ['-y', '--no-verify', '--to', '8.8.8'])
     assert.equal(result.status, 0, `stderr: ${result.stderr}`)
     const calls = readCalls(fx, 'npm-calls')
     assert.deepEqual(calls[0], ['install', '-g', `${PKG}@8.8.8`]) // --to 不查 latest，第一个调用就是 install
@@ -226,7 +226,7 @@ test('update：--self 只更新 dsh-safe 自身，不动 dsh 与隔离状态', a
 test('update：dsh 与 dsh-safe 都有更新 → 一条命令一起装，恢复隔离', async () => {
   const fx = makeFixture()
   try {
-    const result = runUpdate(fx, ['-y'], { FAKE_NPM_SELF_LATEST: '8.8.8' })
+    const result = runUpdate(fx, ['-y', '--no-verify'], { FAKE_NPM_SELF_LATEST: '8.8.8' })
     assert.equal(result.status, 0, `stderr: ${result.stderr}`)
     assert.ok(result.stderr.includes(`dsh ${PKG} ${OLD_VERSION} → ${NEW_VERSION} (npm)`))
     assert.ok(result.stderr.includes(`dsh-safe @hyzyn/dsh-safe ${SELF_VERSION} → 8.8.8 (npm)`))
@@ -273,7 +273,7 @@ test('isNewerVersion：语义化版本比较', () => {
 test('update：registry 版本低于本地时自身不降级', async () => {
   const fx = makeFixture()
   try {
-    const result = runUpdate(fx, ['-y'], { FAKE_NPM_SELF_LATEST: '0.0.9' })
+    const result = runUpdate(fx, ['-y', '--no-verify'], { FAKE_NPM_SELF_LATEST: '0.0.9' })
     assert.equal(result.status, 0, `stderr: ${result.stderr}`)
     const calls = readCalls(fx, 'npm-calls')
     assert.deepEqual(calls[2], ['install', '-g', `${PKG}@${NEW_VERSION}`]) // 只有 dsh 入计划
@@ -300,7 +300,7 @@ test('-u web：已最新 → 静默跳过升级直接启动', async () => {
 test('-u -y web：有更新 → 升级并恢复隔离再启动', async () => {
   const fx = makeFixture()
   try {
-    const result = runU(fx, ['-u', '-y', 'web'])
+    const result = runU(fx, ['-u', '-y', '--no-verify', 'web'])
     assert.equal(result.status, 0, `stderr: ${result.stderr}`)
     assert.ok(result.stderr.includes(`dsh 已更新: ${OLD_VERSION} → ${NEW_VERSION}`))
     assert.ok(result.stdout.includes('已恢复 1 个被隔离的插件 (profile: web)'))

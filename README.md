@@ -67,6 +67,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `--to <版本>` | 指定 dsh 的目标版本，也是回滚方式（显式允许降级）；dsh-safe 自身始终升到最新 |
 | `--self` | 只更新 dsh-safe 自身，不动 dsh 与隔离状态 |
 | `--no-restore` | 升级 dsh 后不自动恢复被隔离的插件 |
+| `--no-verify` | 跳过升级后的解析器自校验（临时 profile 试启新版 dsh，验证报错识别仍有效） |
 | `--pm <npm\|pnpm>` | 强制指定包管理器（缺省自动探测） |
 
 ### 环境变量
@@ -98,7 +99,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 - patch 文件本身 YAML 解析错误（如手改坏了）时无法识别插件，只会透传。
 - `--patch` 覆盖层里插入的行不参与对照表（对照表只扫 profile patch、home patch 与 bundle patch）。
 - 为了捕获 stderr，包装器把 dsh 的 stderr 接到管道（内容仍实时回显到终端）；stdout/stdin 直通不受影响。
-- 本项目针对 dsh 0.1.x 的报错格式做匹配；dsh 大版本升级后格式变化时需要同步更新解析器。
+- 本项目针对 dsh 0.1.x 的报错格式做匹配；dsh 大版本升级后格式变化时需要同步更新解析器。缓解：update/-u 升级 dsh 后会自动做解析器自校验——临时 profile 试启新版 dsh 并确认报错仍可识别，失配当场告警（`--no-verify` 跳过）。
 - Windows 为尽力支持：update / --self / list / restore 已适配（.cmd shim 解析、shell 方式调用 npm/pnpm）；包装启动会把 PATH 上 dsh 的 .cmd/.ps1 shim 解析出内嵌的 node 入口、改为 `node <入口>` 直接启动（.exe 直接运行，shim 解析失败退回 shell 方式），绕开 Node 禁止 spawn .cmd 的限制。尚未在真实 Windows 上端到端验证，欢迎反馈。
 
 ## 开发
