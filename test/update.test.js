@@ -15,7 +15,7 @@ const OLD_VERSION = '0.1.0'
 const NEW_VERSION = '9.9.9'
 const SELF_VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
 
-/** 搭一个假环境：npm 全局目录里的 dsh 包 + 假 npm + 已隔离一个插件的 profile。 */
+/** 搭一个 fake 环境：npm 全局目录里的 dsh 包 + fake npm + 已隔离一个插件的 profile。 */
 function makeFixture() {
   const home = mkdtempSync(join(tmpdir(), 'dsh-safe-update-'))
   const globalDir = join(home, 'global')
@@ -39,8 +39,8 @@ process.exit(0)
   const binDir = join(home, 'bin')
   symlinkSync(dshBin, join(binDir, 'dsh'))
 
-  // 假 npm：dsh 包的 view 返回 FAKE_NPM_LATEST；自身包返回 FAKE_NPM_SELF_LATEST
-  //（缺省读真实 package.json → 自身视为最新）；install 只改写假 dsh 的版本
+  // fake npm：dsh 包的 view 返回 FAKE_NPM_LATEST；自身包返回 FAKE_NPM_SELF_LATEST
+  //（缺省读真实 package.json → 自身视为最新）；install 只改写 fake dsh 的版本
   const npmBin = join(binDir, 'npm')
   writeFileSync(
     npmBin,
@@ -122,7 +122,7 @@ function runU(fx, args, extraEnv = {}) {
   })
 }
 
-/** 读假进程的调用记录；文件不存在（没被调用）返回 []。 */
+/** 读 fake 进程的调用记录；文件不存在（没被调用）返回 []。 */
 function readCalls(fx, name) {
   try {
     return readFileSync(join(fx.home, name), 'utf8')
@@ -145,12 +145,12 @@ test('update：升级 → 自动恢复隔离 → 提示回滚', async () => {
     // 计划与安装命令
     assert.ok(result.stderr.includes(`dsh ${PKG} ${OLD_VERSION} → ${NEW_VERSION} (npm)`))
     assert.ok(result.stderr.includes(`npm install -g ${PKG}@${NEW_VERSION}`))
-    // 假 npm 确实被调用：view dsh → view 自身 → install
+    // fake npm 确实被调用：view dsh → view 自身 → install
     const calls = readFileSync(join(fx.home, 'npm-calls'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
     assert.deepEqual(calls[0], ['view', PKG, 'version'])
     assert.deepEqual(calls[1], ['view', '@hyzyn/dsh-safe', 'version'])
     assert.deepEqual(calls[2], ['install', '-g', `${PKG}@${NEW_VERSION}`])
-    // 假 dsh 版本已被"升级"
+    // fake dsh 版本已被"升级"
     assert.equal(JSON.parse(readFileSync(fx.pkgJsonPath, 'utf8')).version, NEW_VERSION)
     // 隔离插件已恢复：托管区块摘除、台账清空
     assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))

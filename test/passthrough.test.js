@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const BIN = join(ROOT, 'bin', 'dsh-safe.js')
 
-/** 假 dsh：只记录收到的 argv 并退出 0，用于断言透传。 */
+/** fake dsh：只记录收到的 argv 并退出 0，用于断言透传。 */
 function makeFixture() {
   const home = mkdtempSync(join(tmpdir(), 'dsh-safe-passthrough-'))
   const binDir = join(home, 'bin')

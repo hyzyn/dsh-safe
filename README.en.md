@@ -99,7 +99,7 @@ How upgrading works: `dsh-safe update` auto-detects the dsh package name and ins
 - Rows inserted via `--patch` overlay layers are not part of the mapping (only the profile patch, the home patch and bundle patches are scanned).
 - To capture stderr, the wrapper pipes dsh's stderr (content is still echoed to the terminal in real time); stdout/stdin pass through unaffected.
 - Match patterns target the dsh 0.1.x error formats; a major dsh upgrade that changes them requires updating the parser.
-- Windows is best-effort: update / --self / list / restore are adapted (.cmd shim parsing, shelled npm/pnpm invocations), but the wrapped dsh boot's child-process spawn is unverified on Windows.
+- Windows is best-effort: update / --self / list / restore are adapted (.cmd shim parsing, shelled npm/pnpm invocations); the wrapped boot resolves the node entry embedded in dsh's .cmd/.ps1 shim on PATH and spawns `node <entry>` directly (.exe runs as-is, unparseable shims fall back to a shelled spawn), sidestepping Node's ban on spawning .cmd files. Not yet verified end-to-end on a real Windows machine — feedback welcome.
 
 ## Development
 

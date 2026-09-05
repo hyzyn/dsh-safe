@@ -99,12 +99,12 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 - `--patch` 覆盖层里插入的行不参与对照表（对照表只扫 profile patch、home patch 与 bundle patch）。
 - 为了捕获 stderr，包装器把 dsh 的 stderr 接到管道（内容仍实时回显到终端）；stdout/stdin 直通不受影响。
 - 本项目针对 dsh 0.1.x 的报错格式做匹配；dsh 大版本升级后格式变化时需要同步更新解析器。
-- Windows 为尽力支持：update / --self / list / restore 已适配（.cmd shim 解析、shell 方式调用 npm/pnpm），包装启动 dsh 的子进程方式未在 Windows 验证。
+- Windows 为尽力支持：update / --self / list / restore 已适配（.cmd shim 解析、shell 方式调用 npm/pnpm）；包装启动会把 PATH 上 dsh 的 .cmd/.ps1 shim 解析出内嵌的 node 入口、改为 `node <入口>` 直接启动（.exe 直接运行，shim 解析失败退回 shell 方式），绕开 Node 禁止 spawn .cmd 的限制。尚未在真实 Windows 上端到端验证，欢迎反馈。
 
 ## 开发
 
 ```bash
-npm test        # node:test 单元测试 + 假 dsh 集成测试
+npm test        # node:test 单元测试 + fake dsh 集成测试
 ```
 
 ## License

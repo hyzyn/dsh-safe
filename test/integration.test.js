@@ -58,7 +58,7 @@ function makeFixture() {
   return { home, patchPath, stateFile, profileDir }
 }
 
-/** 写一个假 dsh 可执行脚本：第 n 次运行按 scenarios[n-1] 输出并退出。 */
+/** 写一个 fake dsh 可执行脚本：第 n 次运行按 scenarios[n-1] 输出并退出。 */
 function makeFakeDsh(home, scenarios) {
   const binDir = join(home, 'bin')
   const script = `#!/usr/bin/env node
@@ -106,7 +106,7 @@ test('集成：启动失败 → 自动隔离两个坏插件 → 重试成功', (
     ])
     const result = runSafe(fx.home, ['web'])
     assert.equal(result.status, 0, `stderr: ${result.stderr}`)
-    // 重试确实发生了（假 dsh 跑了两轮）
+    // 重试确实发生了（fake dsh 跑了两轮）
     assert.equal(readFileSync(fx.stateFile, 'utf8').trim(), '2')
     const patch = readFileSync(fx.patchPath, 'utf8')
     // 用户内容原样保留
