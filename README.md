@@ -1,7 +1,6 @@
-<a name="zh"></a>
 # dsh-safe · dsh 启动保险丝
 
-中文 | [English](#english)
+中文 | [English](./README.en.md)
 
 DeepSeek Harness（DSH）的社区插件与 dsh 运行时不兼容时，`dsh web` 会**整体启动失败**——加载器把所有 patch 层拉平成同一棵加载树，任何一个插件 import 失败、`apply` 抛错、或等不到注入的服务，启动审计就会拒绝整棵树，进程退出。此时只能手动编辑 `cordis.patch.yml` 把坏插件禁用。
 
@@ -76,20 +75,6 @@ dsh-safe help
 
 ```bash
 npm test        # node:test 单元测试 + 假 dsh 集成测试
-```
-
-<a name="english"></a>
-## English
-
-[中文](#zh) | English
-
-**dsh-safe** is a fuse for DeepSeek Harness (DSH) startup: when a community plugin is incompatible with the running dsh version, `dsh web` normally fails to boot entirely — one broken plugin rejects the whole loader tree. dsh-safe wraps any `dsh` invocation, parses the startup-failure diagnostics on stderr, marks the offending patch rows as `disabled: true` inside a managed block in your profile patch file (keeping all user content and comments), records the action in a quarantine ledger, and retries. First-party `@deepseek-ai/*` plugins are protected by default; `dsh-safe restore --profile <name> --all` re-enables quarantined rows after you upgrade the plugin.
-
-```bash
-npm install -g @hyzyn/dsh-safe
-dsh-safe web                 # run dsh web with auto-quarantine
-dsh-safe list                # show quarantined plugins
-dsh-safe restore --profile web --all
 ```
 
 ## License
