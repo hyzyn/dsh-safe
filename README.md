@@ -32,20 +32,23 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 [dsh-safe] 重试启动…
 ```
 
-## 命令
+## 命令与参数
 
-```
-dsh-safe <dsh 参数…>             包装运行 dsh
-dsh-safe -u [dsh 参数…]            先升级 dsh（已最新则跳过），再启动
-dsh-safe list [--profile <名>]    查看隔离名单（缺省列出全部 profile）
-dsh-safe restore --profile <名> (--id <id> | --all) [--dry-run]
-                                  恢复被自动禁用的插件（升级修复后使用）
-dsh-safe update [-y] [--to <版本>] [--self] [--no-restore] [--pm npm|pnpm]
-                                  升级 dsh 与 dsh-safe 自身，并自动恢复被隔离的插件
-dsh-safe help
-```
+### 子命令
 
-包装模式选项（必须写在 profile / 子命令之前）：
+| 命令 | 说明 |
+| --- | --- |
+| `dsh-safe <dsh 参数…>` | 包装运行 dsh（把平时的 `dsh` 换成 `dsh-safe`） |
+| `dsh-safe -u [update 选项] [dsh 参数…]` | 先升级 dsh 与 dsh-safe 自身（已最新则跳过），再按包装模式启动；`--update` 等价 |
+| `dsh-safe update [选项]` | 只升级不启动，选项见下 |
+| `dsh-safe list [--profile <名>]` | 查看隔离名单（缺省列出全部 profile） |
+| `dsh-safe restore --profile <名> (--id <id> \| --all) [--dry-run]` | 恢复被自动禁用的插件（升级修复后使用） |
+| `dsh-safe help`（`-h` / `--help`） | 显示帮助 |
+| `dsh-safe --version`（`-V`） | 显示版本 |
+
+短选项都有等价的长形式（`-u` = `--update`、`-y` = `--yes`、`-h` = `--help`、`-V` = `--version`）；单字母用 `-`，多字母用 `--`。
+
+### 包装模式选项（必须写在第一个位置参数之前）
 
 | 选项 | 说明 |
 | --- | --- |
@@ -53,13 +56,25 @@ dsh-safe help
 | `--max-retries <n>` | 自动隔离后最多重试启动的次数（默认 2；`0` 表示不隔离只透传） |
 | `--allow-first-party` | 允许自动禁用 `@deepseek-ai/*` 第一方插件（默认跳过，需手动处理） |
 
-升级 dsh：`dsh-safe update` 自动探测 dsh 的包名与安装方式（npm / pnpm 全局安装）、对比最新版本后代跑升级，完成后自动恢复所有被隔离的插件——新 dsh 下仍不兼容的会在下次启动时再次被自动隔离。`--to <版本>` 指定目标版本（也是回滚方式），`--no-restore` 跳过恢复，`-y` 跳过确认。
+### update / -u 选项（写在 `-u` 或 `update` 之后；其前的包装旗标照常生效）
 
-update / -u 会同时检查 dsh-safe 自身的版本，谁旧升谁（一条安装命令）；`--self` 只更新 dsh-safe。另外每次包装启动时最多每天一次检查 dsh-safe 新版并提示一行（检查失败完全静默），`DSH_SAFE_NO_UPDATE_CHECK=1` 关闭。
+| 选项 | 说明 |
+| --- | --- |
+| `-y` / `--yes` | 跳过升级确认（非交互终端必须显式加 `-y`） |
+| `--to <版本>` | 指定 dsh 的目标版本，也是回滚方式（显式允许降级）；dsh-safe 自身始终升到最新 |
+| `--self` | 只更新 dsh-safe 自身，不动 dsh 与隔离状态 |
+| `--no-restore` | 升级 dsh 后不自动恢复被隔离的插件 |
+| `--pm <npm\|pnpm>` | 强制指定包管理器（缺省自动探测） |
 
-日常把 `dsh-safe -u web` 当启动命令即可：dsh 已是最新时直接启动（仅一次版本检查），有更新时先升级并恢复隔离再启动，更新检查失败只告警、照常启动。`-u` 后可接 update 的选项（如 `-u -y web`）与包装旗标（如 `-u --max-retries 0 web`）。
+### 环境变量
 
-提示信息语言跟随 `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE`（`zh*` 为中文，其余英文），也可用环境变量 `DSH_SAFE_LANG=zh|en` 强制指定。
+| 变量 | 说明 |
+| --- | --- |
+| `DSH_SAFE_LANG=zh\|en` | 强制提示信息语言（缺省跟随 `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE`） |
+| `DSH_SAFE_NO_UPDATE_CHECK=1` | 关闭启动时每天最多一次的 dsh-safe 新版提示 |
+| `DSH_HOME` | dsh 的 home 目录（dsh 自己的环境变量；隔离台账与各 patch 路径随之） |
+
+升级行为：`dsh-safe update` 自动探测 dsh 的包名与安装方式（npm / pnpm 全局安装）、对比最新版本后代跑升级，完成后自动恢复所有被隔离的插件——新 dsh 下仍不兼容的会在下次启动时再次被自动隔离。日常把 `dsh-safe -u web` 当启动命令即可：dsh 已是最新时直接启动（仅一次版本检查），有更新时先升级并恢复隔离再启动，更新检查失败只告警、照常启动。`-u` 后可接 update 的选项（如 `-u -y web`）与包装旗标（如 `-u --max-retries 0 web`）。
 
 ## 工作原理
 

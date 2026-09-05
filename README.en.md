@@ -32,20 +32,23 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 [dsh-safe] 重试启动…
 ```
 
-## Commands
+## Commands & Options
 
-```
-dsh-safe <dsh args…>              wrap and run dsh
-dsh-safe -u [dsh args…]           upgrade dsh first (skip if latest), then boot
-dsh-safe list [--profile <name>]  show quarantined plugins (defaults to all profiles)
-dsh-safe restore --profile <name> (--id <id> | --all) [--dry-run]
-                                  re-enable auto-disabled plugins (after a fixed plugin upgrade)
-dsh-safe update [-y] [--to <ver>] [--self] [--no-restore] [--pm npm|pnpm]
-                                  upgrade dsh and dsh-safe itself, auto-restore quarantined plugins
-dsh-safe help
-```
+### Subcommands
 
-Wrapper-mode options (must come before the profile / subcommand):
+| Command | Description |
+| --- | --- |
+| `dsh-safe <dsh args…>` | wrap and run dsh (swap `dsh` for `dsh-safe`) |
+| `dsh-safe -u [update options] [dsh args…]` | upgrade dsh and dsh-safe itself first (skip if latest), then boot in wrap mode; `--update` is an alias |
+| `dsh-safe update [options]` | upgrade only, no boot — options below |
+| `dsh-safe list [--profile <name>]` | show quarantined plugins (defaults to all profiles) |
+| `dsh-safe restore --profile <name> (--id <id> \| --all) [--dry-run]` | re-enable auto-disabled plugins (after a fixed plugin upgrade) |
+| `dsh-safe help` (`-h` / `--help`) | show help |
+| `dsh-safe --version` (`-V`) | show version |
+
+Every short flag has an equivalent long form (`-u` = `--update`, `-y` = `--yes`, `-h` = `--help`, `-V` = `--version`); single letters use `-`, words use `--`.
+
+### Wrapper-mode options (must come before the first positional argument)
 
 | Option | Description |
 | --- | --- |
@@ -53,13 +56,25 @@ Wrapper-mode options (must come before the profile / subcommand):
 | `--max-retries <n>` | Max startup retries after an auto-quarantine (default 2; `0` means pass through without quarantining) |
 | `--allow-first-party` | Allow auto-disabling first-party `@deepseek-ai/*` plugins (skipped by default; handle manually) |
 
-Upgrading dsh: `dsh-safe update` auto-detects the dsh package name and install method (npm / pnpm global installs), compares against the latest version and runs the upgrade for you, then automatically restores all quarantined plugins — any still incompatible under the new dsh will be auto-quarantined again on the next start. `--to <version>` pins a target version (also how you roll back), `--no-restore` skips the restore, `-y` skips the confirmation.
+### update / -u options (after `-u` or `update`; wrapper flags before the dsh args still apply)
 
-update / -u also checks dsh-safe's own version and upgrades whichever is outdated (single install command); `--self` updates dsh-safe only. Additionally, every wrapped boot checks for a new dsh-safe version at most once a day and prints a one-line notice (fully silent on check failure); disable with `DSH_SAFE_NO_UPDATE_CHECK=1`.
+| Option | Description |
+| --- | --- |
+| `-y` / `--yes` | Skip the upgrade confirmation (required in non-interactive terminals) |
+| `--to <version>` | Target dsh version, also how you roll back (explicit downgrades allowed); dsh-safe itself always upgrades to the latest |
+| `--self` | Update dsh-safe itself only; dsh and quarantine state untouched |
+| `--no-restore` | Do not auto-restore quarantined plugins after upgrading dsh |
+| `--pm <npm\|pnpm>` | Force the package manager (auto-detected by default) |
 
-For daily use, just make `dsh-safe -u web` your start command: boots immediately when dsh is already latest (one version check), upgrades + restores first when an update is available, and only warns (still boots) if the update check itself fails. `-u` accepts update options (e.g. `-u -y web`) and wrapper flags (e.g. `-u --max-retries 0 web`).
+### Environment variables
 
-Messages follow `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE` (`zh*` → Chinese, otherwise English); force with `DSH_SAFE_LANG=zh|en`.
+| Variable | Description |
+| --- | --- |
+| `DSH_SAFE_LANG=zh\|en` | Force message language (defaults to `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE`) |
+| `DSH_SAFE_NO_UPDATE_CHECK=1` | Disable the at-most-daily dsh-safe new-version notice on boot |
+| `DSH_HOME` | dsh home directory (dsh's own variable; the quarantine ledger and patch paths follow it) |
+
+How upgrading works: `dsh-safe update` auto-detects the dsh package name and install method (npm / pnpm global installs), compares against the latest version and runs the upgrade for you, then automatically restores all quarantined plugins — any still incompatible under the new dsh will be auto-quarantined again on the next start. For daily use, just make `dsh-safe -u web` your start command: boots immediately when dsh is already latest (one version check), upgrades + restores first when an update is available, and only warns (still boots) if the update check itself fails. `-u` accepts update options (e.g. `-u -y web`) and wrapper flags (e.g. `-u --max-retries 0 web`).
 
 ## How It Works
 
