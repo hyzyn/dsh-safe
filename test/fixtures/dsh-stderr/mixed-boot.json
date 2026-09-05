@@ -1,0 +1,4 @@
+{
+  "names": ["@acme/gone", "@acme/misconfigured"],
+  "entryIds": ["aabbccdd", "misconfig-row"]
+}

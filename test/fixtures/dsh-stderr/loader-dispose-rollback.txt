@@ -1,0 +1,5 @@
+Error: dsh: plugin tree failed to load: loader entries failed to dispose
+Error: failed to dispose loader entry f9e8d7c6 (@acme/legacy): dispose timed out after 5000ms
+    at Object.dispose (file:///opt/dsh/lib/loader.js:301:11)
+Error: failed to rollback loader entry 11223344 (@acme/reverted): rollback refused by plugin
+    at Object.rollback (file:///opt/dsh/lib/loader.js:330:9)

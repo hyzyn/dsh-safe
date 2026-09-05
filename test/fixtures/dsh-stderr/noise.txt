@@ -1,0 +1,5 @@
+[dsh-global-search] mounted, prompt file: /Users/me/.dsh/prompts.yml
+[dsh-env-manager] mounted, env file: /Users/me/.dsh/env.yml
+[dsh-mcp-config] mounted, patch file: /Users/me/.dsh/cordis.patch.yml
+dsh: listening on http://localhost:3080
+web ready

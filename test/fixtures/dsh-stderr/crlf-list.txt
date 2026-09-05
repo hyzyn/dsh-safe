@@ -1,0 +1,3 @@
+Error: dsh: plugin tree failed to load: dsh: plugin(s) failed to load: @linxin666/dsh-pet, dsh-better-sidebar, @acme/missing-dep; Cordis startup failed because these plugin(s) could not be resolved (see the error(s) logged above)
+    at async boot (file:///opt/dsh/index.js:1491:13)
+    at async main (file:///opt/dsh/index.js:1620:5)

@@ -1,0 +1,8 @@
+Error: dsh: plugin tree failed to load: dsh: 3 entries did not activate
+@shatyuka/dsh-llm-codebuddy: TypeError: ctx.clientUi.registerModule is not a function
+    at new LlmCodebuddy (file:///Users/me/.dsh/profiles/web/node_modules/@shatyuka/dsh-llm-codebuddy/lib/index.js:10:5)
+    at file:///Users/me/.dsh/profiles/web/#abc123def
+@acme/pending-plugin: pending (waiting for services: codegraphClient, webserver)
+    at async boot (file:///opt/dsh/index.js:1503:5)
+@acme/throwing-plugin: Error: boom while applying
+    at Object.apply (file:///Users/me/.dsh/profiles/web/node_modules/@acme/throwing-plugin/lib/index.js:3:9)

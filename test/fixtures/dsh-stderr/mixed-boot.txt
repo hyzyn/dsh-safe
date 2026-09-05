@@ -1,0 +1,4 @@
+Error: dsh: plugin tree failed to load: dsh: plugin(s) failed to load: @acme/gone; Cordis startup failed because these plugin(s) could not be resolved (see the error(s) logged above)
+Error: failed to apply loader entry aabbccdd (@acme/misconfigured): config validation failed
+    at Object.apply (file:///opt/dsh/lib/loader.js:210:19)
+    at file:///Users/me/.dsh/profiles/web/#misconfig-row

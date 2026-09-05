@@ -1,0 +1,4 @@
+{
+  "names": ["@shatyuka/dsh-llm-codebuddy", "@acme/pending-plugin", "@acme/throwing-plugin"],
+  "entryIds": ["abc123def"]
+}

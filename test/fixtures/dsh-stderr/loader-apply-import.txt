@@ -1,0 +1,7 @@
+Error: dsh: plugin tree failed to load: loader entries failed to apply
+AggregateError: loader entries failed to apply
+    at assertLoaderEntries (file:///opt/dsh/lib/boot.js:88:11)
+Error: failed to apply loader entry a1b2c3d4 (@hyzyn/dsh-env): Expected config.port to be a number, got string
+    at Object.apply (file:///opt/dsh/lib/loader.js:210:19)
+Error: failed to import loader entry e5f6a7b8 (@acme/broken): Cannot find package '@acme/broken' imported from /Users/me/.dsh/profiles/web/cordis.patch.yml
+    at Object.import (file:///opt/dsh/lib/loader.js:244:9)

@@ -1,0 +1,4 @@
+Error: dsh: plugin tree failed to load: loader fibers failed to start
+    at file:///Users/me/.dsh/profiles/web/#tty-client:web-1
+    at file:///Users/me/.dsh/profiles/web/#webapp
+    at SomeClass.method (file:///opt/dsh/lib/fibers.js:12:3)
