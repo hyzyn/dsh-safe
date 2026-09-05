@@ -36,6 +36,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 
 ```
 dsh-safe <dsh 参数…>             包装运行 dsh
+dsh-safe -u [dsh 参数…]            先升级 dsh（已最新则跳过），再启动
 dsh-safe list [--profile <名>]    查看隔离名单（缺省列出全部 profile）
 dsh-safe restore --profile <名> (--id <id> | --all) [--dry-run]
                                   恢复被自动禁用的插件（升级修复后使用）
@@ -53,6 +54,8 @@ dsh-safe help
 | `--allow-first-party` | 允许自动禁用 `@deepseek-ai/*` 第一方插件（默认跳过，需手动处理） |
 
 升级 dsh：`dsh-safe update` 自动探测 dsh 的包名与安装方式（npm / pnpm 全局安装）、对比最新版本后代跑升级，完成后自动恢复所有被隔离的插件——新 dsh 下仍不兼容的会在下次启动时再次被自动隔离。`--to <版本>` 指定目标版本（也是回滚方式），`--no-restore` 跳过恢复，`-y` 跳过确认。
+
+日常把 `dsh-safe -u web` 当启动命令即可：dsh 已是最新时直接启动（仅一次版本检查），有更新时先升级并恢复隔离再启动，更新检查失败只告警、照常启动。`-u` 后可接 update 的选项（如 `-u -y web`）与包装旗标（如 `-u --max-retries 0 web`）。
 
 提示信息语言跟随 `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE`（`zh*` 为中文，其余英文），也可用环境变量 `DSH_SAFE_LANG=zh|en` 强制指定。
 

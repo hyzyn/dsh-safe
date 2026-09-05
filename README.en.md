@@ -36,6 +36,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 
 ```
 dsh-safe <dsh args…>              wrap and run dsh
+dsh-safe -u [dsh args…]           upgrade dsh first (skip if latest), then boot
 dsh-safe list [--profile <name>]  show quarantined plugins (defaults to all profiles)
 dsh-safe restore --profile <name> (--id <id> | --all) [--dry-run]
                                   re-enable auto-disabled plugins (after a fixed plugin upgrade)
@@ -53,6 +54,8 @@ Wrapper-mode options (must come before the profile / subcommand):
 | `--allow-first-party` | Allow auto-disabling first-party `@deepseek-ai/*` plugins (skipped by default; handle manually) |
 
 Upgrading dsh: `dsh-safe update` auto-detects the dsh package name and install method (npm / pnpm global installs), compares against the latest version and runs the upgrade for you, then automatically restores all quarantined plugins — any still incompatible under the new dsh will be auto-quarantined again on the next start. `--to <version>` pins a target version (also how you roll back), `--no-restore` skips the restore, `-y` skips the confirmation.
+
+For daily use, just make `dsh-safe -u web` your start command: boots immediately when dsh is already latest (one version check), upgrades + restores first when an update is available, and only warns (still boots) if the update check itself fails. `-u` accepts update options (e.g. `-u -y web`) and wrapper flags (e.g. `-u --max-retries 0 web`).
 
 Messages follow `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE` (`zh*` → Chinese, otherwise English); force with `DSH_SAFE_LANG=zh|en`.
 

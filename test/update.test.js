@@ -23,7 +23,15 @@ function makeFixture() {
   const pkgJsonPath = join(pkgDir, 'package.json')
   writeFileSync(pkgJsonPath, JSON.stringify({ name: PKG, version: OLD_VERSION, bin: { dsh: 'lib/bin.js' } }))
   const dshBin = join(pkgDir, 'lib', 'bin.js')
-  writeFileSync(dshBin, '#!/usr/bin/env node\nprocess.exit(0)\n')
+  writeFileSync(
+    dshBin,
+    `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs'
+if (process.env.FAKE_DSH_CALLS) appendFileSync(process.env.FAKE_DSH_CALLS, JSON.stringify(process.argv.slice(2)) + '\\n')
+if (process.env.FAKE_DSH_STDOUT) process.stdout.write(process.env.FAKE_DSH_STDOUT)
+process.exit(0)
+`,
+  )
   chmodSync(dshBin, 0o755)
 
   const binDir = join(home, 'bin')
@@ -38,6 +46,7 @@ import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 const args = process.argv.slice(2)
 appendFileSync(process.env.FAKE_NPM_STATE, JSON.stringify(args) + '\\n')
 if (args[0] === 'view') {
+  if (process.env.FAKE_NPM_FAIL_VIEW === '1') process.exit(1)
   console.log(process.env.FAKE_NPM_LATEST ?? '${NEW_VERSION}')
   process.exit(0)
 }
@@ -87,9 +96,42 @@ function runUpdate(fx, args, extraEnv = {}) {
       FAKE_NPM_STATE: join(fx.home, 'npm-calls'),
       FAKE_DSH_PKG_JSON: fx.pkgJsonPath,
       FAKE_NPM_LATEST: NEW_VERSION,
+      FAKE_DSH_CALLS: join(fx.home, 'dsh-calls'),
+      FAKE_DSH_STDOUT: 'dsh booted\n',
       ...extraEnv,
     },
   })
+}
+
+function runU(fx, args, extraEnv = {}) {
+  return spawnSync(process.execPath, [BIN, ...args], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      DSH_HOME: fx.home,
+      PATH: `${fx.binDir}:${process.env.PATH}`,
+      DSH_SAFE_LANG: 'zh',
+      FAKE_NPM_STATE: join(fx.home, 'npm-calls'),
+      FAKE_DSH_PKG_JSON: fx.pkgJsonPath,
+      FAKE_NPM_LATEST: NEW_VERSION,
+      FAKE_DSH_CALLS: join(fx.home, 'dsh-calls'),
+      FAKE_DSH_STDOUT: 'dsh booted\n',
+      ...extraEnv,
+    },
+  })
+}
+
+/** 读假进程的调用记录；文件不存在（没被调用）返回 []。 */
+function readCalls(fx, name) {
+  try {
+    return readFileSync(join(fx.home, name), 'utf8')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l))
+  } catch {
+    return []
+  }
 }
 
 const cleanup = (home) => rmSync(home, { recursive: true, force: true })
@@ -154,10 +196,64 @@ test('update：--to 指定目标版本（兼作回滚）', async () => {
   try {
     const result = runUpdate(fx, ['-y', '--to', '8.8.8'])
     assert.equal(result.status, 0, `stderr: ${result.stderr}`)
-    const calls = readFileSync(join(fx.home, 'npm-calls'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    const calls = readCalls(fx, 'npm-calls')
     assert.deepEqual(calls[0], ['install', '-g', `${PKG}@8.8.8`]) // --to 不查 latest，第一个调用就是 install
     assert.equal(JSON.parse(readFileSync(fx.pkgJsonPath, 'utf8')).version, '8.8.8')
     assert.ok(result.stderr.includes(`dsh 已更新: ${OLD_VERSION} → 8.8.8`))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('-u web：已最新 → 静默跳过升级直接启动', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runU(fx, ['-u', 'web'], { FAKE_NPM_LATEST: OLD_VERSION })
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(!result.stderr.includes('无需更新')) // 日常启动的快路径不刷屏
+    assert.ok(result.stdout.includes('dsh booted'))
+    assert.deepEqual(readCalls(fx, 'dsh-calls'), [['web']])
+    assert.ok(!readCalls(fx, 'npm-calls').some((c) => c[0] === 'install'))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('-u -y web：有更新 → 升级并恢复隔离再启动', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runU(fx, ['-u', '-y', 'web'])
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes(`dsh 已更新: ${OLD_VERSION} → ${NEW_VERSION}`))
+    assert.ok(result.stdout.includes('已恢复 1 个被隔离的插件 (profile: web)'))
+    assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
+    assert.deepEqual(readCalls(fx, 'dsh-calls'), [['web']])
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('-u web：更新检查失败 → 告警并照常启动', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runU(fx, ['-u', 'web'], { FAKE_NPM_FAIL_VIEW: '1' })
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('跳过升级直接启动'))
+    assert.ok(result.stdout.includes('dsh booted'))
+    assert.deepEqual(readCalls(fx, 'dsh-calls'), [['web']])
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('-u web：非交互且有更新 → 拒绝不启动', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runU(fx, ['-u', 'web'])
+    assert.equal(result.status, 1)
+    assert.ok(result.stderr.includes('不是交互终端'))
+    assert.deepEqual(readCalls(fx, 'dsh-calls'), [])
+    assert.ok(!readCalls(fx, 'npm-calls').some((c) => c[0] === 'install'))
   } finally {
     cleanup(fx.home)
   }
