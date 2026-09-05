@@ -15,6 +15,19 @@ test('--patch 的值不会被当成位置参数', () => {
   assert.deepEqual(detectInvocation(['--patch', 'a.yml', 'web']), { mode: 'boot', profile: 'web' })
 })
 
+test('--patch 的等号形式是自包含旗标，不吞后面的位置参数', () => {
+  assert.deepEqual(detectInvocation(['--patch=./a.yml', 'web']), { mode: 'boot', profile: 'web' })
+  assert.deepEqual(detectInvocation(['--profile=tui', '--patch=./a.yml', 'web']), {
+    mode: 'boot',
+    profile: 'tui',
+  })
+})
+
+test('--profile 重复出现时后者生效；值缺失时安全返回 null', () => {
+  assert.deepEqual(detectInvocation(['--profile', 'tui', '--profile', 'web']), { mode: 'boot', profile: 'web' })
+  assert.deepEqual(detectInvocation(['--profile']), { mode: 'boot', profile: null })
+})
+
 test('内部参数里的 --profile 不影响 launcher 识别', () => {
   // 第一个位置参数 web 之后全是内部参数
   assert.deepEqual(detectInvocation(['web', 'resume', '--profile', 'x']), { mode: 'boot', profile: 'web' })
