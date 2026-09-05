@@ -1,3 +1,4 @@
+<a name="zh"></a>
 # dsh-safe · dsh 启动保险丝
 
 中文 | [English](#english)
@@ -79,6 +80,8 @@ npm test        # node:test 单元测试 + 假 dsh 集成测试
 
 <a name="english"></a>
 ## English
+
+[中文](#zh) | English
 
 **dsh-safe** is a fuse for DeepSeek Harness (DSH) startup: when a community plugin is incompatible with the running dsh version, `dsh web` normally fails to boot entirely — one broken plugin rejects the whole loader tree. dsh-safe wraps any `dsh` invocation, parses the startup-failure diagnostics on stderr, marks the offending patch rows as `disabled: true` inside a managed block in your profile patch file (keeping all user content and comments), records the action in a quarantine ledger, and retries. First-party `@deepseek-ai/*` plugins are protected by default; `dsh-safe restore --profile <name> --all` re-enables quarantined rows after you upgrade the plugin.
 
