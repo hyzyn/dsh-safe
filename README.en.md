@@ -16,12 +16,15 @@ Requires Node >= 20 and a local `dsh` command. Zero runtime dependencies.
 
 ## Quick Start
 
-Just replace `dsh` with `dsh-safe`:
+Just swap `dsh` for `dsh-safe` — `-u` (update-and-boot) is recommended: when dsh has a new version it upgrades and restores quarantined plugins first; when dsh is already latest it behaves exactly like a plain start:
 
 ```bash
-dsh-safe web          # same as dsh web, with auto-quarantine
+dsh-safe -u web       # recommended: update then boot (with auto-quarantine)
+dsh-safe web          # no update check, boot with auto-quarantine
 dsh-safe --profile tui --patch ./extra.yml
 ```
+
+`-u` adds one version check per boot (needs network; on check failure it just warns and boots anyway) — offline or scripted environments can use the second line.
 
 Sample output (shown with a zh locale: a broken plugin is quarantined, then startup retries):
 

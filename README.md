@@ -16,12 +16,15 @@ npm install -g @hyzyn/dsh-safe
 
 ## 快速开始
 
-把平时的 `dsh` 换成 `dsh-safe` 即可：
+把平时的 `dsh` 换成 `dsh-safe` 即可，推荐直接用 `-u`（更新并启动）：dsh 有新版本时先升级并恢复被隔离的插件再启动，已最新时和普通启动完全一样：
 
 ```bash
-dsh-safe web          # 等价于 dsh web，带自动隔离
+dsh-safe -u web       # 推荐：更新并启动（含自动隔离）
+dsh-safe web          # 不检查更新，直接带自动隔离启动
 dsh-safe --profile tui --patch ./extra.yml
 ```
+
+`-u` 每次启动多做一次版本检查（需要联网，检查失败只告警、照常启动）；离线或脚本环境用第二行即可。
 
 输出示例（坏插件被自动隔离后重试）：
 
