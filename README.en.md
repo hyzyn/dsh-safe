@@ -40,8 +40,8 @@ dsh-safe -u [dsh args…]           upgrade dsh first (skip if latest), then boo
 dsh-safe list [--profile <name>]  show quarantined plugins (defaults to all profiles)
 dsh-safe restore --profile <name> (--id <id> | --all) [--dry-run]
                                   re-enable auto-disabled plugins (after a fixed plugin upgrade)
-dsh-safe update [-y] [--to <ver>] [--no-restore] [--pm npm|pnpm]
-                                  upgrade dsh and auto-restore quarantined plugins
+dsh-safe update [-y] [--to <ver>] [--self] [--no-restore] [--pm npm|pnpm]
+                                  upgrade dsh and dsh-safe itself, auto-restore quarantined plugins
 dsh-safe help
 ```
 
@@ -54,6 +54,8 @@ Wrapper-mode options (must come before the profile / subcommand):
 | `--allow-first-party` | Allow auto-disabling first-party `@deepseek-ai/*` plugins (skipped by default; handle manually) |
 
 Upgrading dsh: `dsh-safe update` auto-detects the dsh package name and install method (npm / pnpm global installs), compares against the latest version and runs the upgrade for you, then automatically restores all quarantined plugins — any still incompatible under the new dsh will be auto-quarantined again on the next start. `--to <version>` pins a target version (also how you roll back), `--no-restore` skips the restore, `-y` skips the confirmation.
+
+update / -u also checks dsh-safe's own version and upgrades whichever is outdated (single install command); `--self` updates dsh-safe only. Additionally, every wrapped boot checks for a new dsh-safe version at most once a day and prints a one-line notice (fully silent on check failure); disable with `DSH_SAFE_NO_UPDATE_CHECK=1`.
 
 For daily use, just make `dsh-safe -u web` your start command: boots immediately when dsh is already latest (one version check), upgrades + restores first when an update is available, and only warns (still boots) if the update check itself fails. `-u` accepts update options (e.g. `-u -y web`) and wrapper flags (e.g. `-u --max-retries 0 web`).
 

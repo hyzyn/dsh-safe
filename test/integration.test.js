@@ -89,6 +89,7 @@ function runSafe(home, args, extraEnv = {}) {
       FAKE_STATE: join(home, 'fake-dsh-attempts'),
       PATH: `${join(home, 'bin')}:${process.env.PATH}`,
       DSH_SAFE_LANG: 'zh', // 固定语言，断言与宿主 locale 无关
+      DSH_SAFE_NO_UPDATE_CHECK: '1', // 关闭新版提示，测试不依赖网络
       ...extraEnv,
     },
   })

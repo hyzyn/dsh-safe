@@ -6,12 +6,14 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { applyManagedBlock, buildManagedBlock, MANAGED_START } from '../lib/patchfile.js'
+import { isNewerVersion } from '../lib/update.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const BIN = join(ROOT, 'bin', 'dsh-safe.js')
 const PKG = '@deepseek-ai/dsh'
 const OLD_VERSION = '0.1.0'
 const NEW_VERSION = '9.9.9'
+const SELF_VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
 
 /** 搭一个假环境：npm 全局目录里的 dsh 包 + 假 npm + 已隔离一个插件的 profile。 */
 function makeFixture() {
@@ -37,7 +39,8 @@ process.exit(0)
   const binDir = join(home, 'bin')
   symlinkSync(dshBin, join(binDir, 'dsh'))
 
-  // 假 npm：view 返回 FAKE_NPM_LATEST；install 记录参数并改写假 dsh 的版本
+  // 假 npm：dsh 包的 view 返回 FAKE_NPM_LATEST；自身包返回 FAKE_NPM_SELF_LATEST
+  //（缺省读真实 package.json → 自身视为最新）；install 只改写假 dsh 的版本
   const npmBin = join(binDir, 'npm')
   writeFileSync(
     npmBin,
@@ -47,13 +50,20 @@ const args = process.argv.slice(2)
 appendFileSync(process.env.FAKE_NPM_STATE, JSON.stringify(args) + '\\n')
 if (args[0] === 'view') {
   if (process.env.FAKE_NPM_FAIL_VIEW === '1') process.exit(1)
-  console.log(process.env.FAKE_NPM_LATEST ?? '${NEW_VERSION}')
+  if (args[1] === '${PKG}') {
+    console.log(process.env.FAKE_NPM_LATEST ?? '${NEW_VERSION}')
+  } else {
+    console.log(process.env.FAKE_NPM_SELF_LATEST ?? JSON.parse(readFileSync(process.env.FAKE_SELF_PKG_JSON, 'utf8')).version)
+  }
   process.exit(0)
 }
 if (args[0] === 'install') {
-  const pkg = JSON.parse(readFileSync(process.env.FAKE_DSH_PKG_JSON, 'utf8'))
-  pkg.version = args[2].split('@').pop()
-  writeFileSync(process.env.FAKE_DSH_PKG_JSON, JSON.stringify(pkg, null, 2))
+  const spec = args.slice(2).find((s) => s.startsWith('${PKG}@'))
+  if (spec) {
+    const pkg = JSON.parse(readFileSync(process.env.FAKE_DSH_PKG_JSON, 'utf8'))
+    pkg.version = spec.split('@').pop()
+    writeFileSync(process.env.FAKE_DSH_PKG_JSON, JSON.stringify(pkg, null, 2))
+  }
   process.exit(0)
 }
 process.exit(1)
@@ -85,39 +95,30 @@ process.exit(1)
   return { home, binDir, pkgJsonPath, patchPath, ledgerPath: join(ledgerDir, 'quarantine.json') }
 }
 
+const commonEnv = (fx) => ({
+  DSH_HOME: fx.home,
+  PATH: `${fx.binDir}:${process.env.PATH}`,
+  DSH_SAFE_LANG: 'zh', // 固定语言，断言与宿主 locale 无关
+  DSH_SAFE_NO_UPDATE_CHECK: '1', // 包装路径的新版提示不参与 update 测试
+  FAKE_NPM_STATE: join(fx.home, 'npm-calls'),
+  FAKE_DSH_PKG_JSON: fx.pkgJsonPath,
+  FAKE_SELF_PKG_JSON: join(ROOT, 'package.json'),
+  FAKE_NPM_LATEST: NEW_VERSION,
+  FAKE_DSH_CALLS: join(fx.home, 'dsh-calls'),
+  FAKE_DSH_STDOUT: 'dsh booted\n',
+})
+
 function runUpdate(fx, args, extraEnv = {}) {
   return spawnSync(process.execPath, [BIN, 'update', ...args], {
     encoding: 'utf8',
-    env: {
-      ...process.env,
-      DSH_HOME: fx.home,
-      PATH: `${fx.binDir}:${process.env.PATH}`,
-      DSH_SAFE_LANG: 'zh', // 固定语言，断言与宿主 locale 无关
-      FAKE_NPM_STATE: join(fx.home, 'npm-calls'),
-      FAKE_DSH_PKG_JSON: fx.pkgJsonPath,
-      FAKE_NPM_LATEST: NEW_VERSION,
-      FAKE_DSH_CALLS: join(fx.home, 'dsh-calls'),
-      FAKE_DSH_STDOUT: 'dsh booted\n',
-      ...extraEnv,
-    },
+    env: { ...process.env, ...commonEnv(fx), ...extraEnv },
   })
 }
 
 function runU(fx, args, extraEnv = {}) {
   return spawnSync(process.execPath, [BIN, ...args], {
     encoding: 'utf8',
-    env: {
-      ...process.env,
-      DSH_HOME: fx.home,
-      PATH: `${fx.binDir}:${process.env.PATH}`,
-      DSH_SAFE_LANG: 'zh',
-      FAKE_NPM_STATE: join(fx.home, 'npm-calls'),
-      FAKE_DSH_PKG_JSON: fx.pkgJsonPath,
-      FAKE_NPM_LATEST: NEW_VERSION,
-      FAKE_DSH_CALLS: join(fx.home, 'dsh-calls'),
-      FAKE_DSH_STDOUT: 'dsh booted\n',
-      ...extraEnv,
-    },
+    env: { ...process.env, ...commonEnv(fx), ...extraEnv },
   })
 }
 
@@ -144,10 +145,11 @@ test('update：升级 → 自动恢复隔离 → 提示回滚', async () => {
     // 计划与安装命令
     assert.ok(result.stderr.includes(`dsh ${PKG} ${OLD_VERSION} → ${NEW_VERSION} (npm)`))
     assert.ok(result.stderr.includes(`npm install -g ${PKG}@${NEW_VERSION}`))
-    // 假 npm 确实被调用：先 view 后 install
+    // 假 npm 确实被调用：view dsh → view 自身 → install
     const calls = readFileSync(join(fx.home, 'npm-calls'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
     assert.deepEqual(calls[0], ['view', PKG, 'version'])
-    assert.deepEqual(calls[1], ['install', '-g', `${PKG}@${NEW_VERSION}`])
+    assert.deepEqual(calls[1], ['view', '@hyzyn/dsh-safe', 'version'])
+    assert.deepEqual(calls[2], ['install', '-g', `${PKG}@${NEW_VERSION}`])
     // 假 dsh 版本已被"升级"
     assert.equal(JSON.parse(readFileSync(fx.pkgJsonPath, 'utf8')).version, NEW_VERSION)
     // 隔离插件已恢复：托管区块摘除、台账清空
@@ -200,6 +202,82 @@ test('update：--to 指定目标版本（兼作回滚）', async () => {
     assert.deepEqual(calls[0], ['install', '-g', `${PKG}@8.8.8`]) // --to 不查 latest，第一个调用就是 install
     assert.equal(JSON.parse(readFileSync(fx.pkgJsonPath, 'utf8')).version, '8.8.8')
     assert.ok(result.stderr.includes(`dsh 已更新: ${OLD_VERSION} → 8.8.8`))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('update：--self 只更新 dsh-safe 自身，不动 dsh 与隔离状态', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runUpdate(fx, ['-y', '--self'], { FAKE_NPM_SELF_LATEST: '9.9.9' })
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    const calls = readCalls(fx, 'npm-calls')
+    assert.deepEqual(calls[0], ['view', '@hyzyn/dsh-safe', 'version']) // --self 不查 dsh
+    assert.deepEqual(calls[1], ['install', '-g', '@hyzyn/dsh-safe@9.9.9'])
+    assert.ok(result.stderr.includes(`dsh-safe 已更新: ${SELF_VERSION} → 9.9.9`))
+    assert.ok(result.stderr.includes('下次启动生效'))
+    assert.ok(readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START)) // 隔离状态未动
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('update：dsh 与 dsh-safe 都有更新 → 一条命令一起装，恢复隔离', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runUpdate(fx, ['-y'], { FAKE_NPM_SELF_LATEST: '8.8.8' })
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes(`dsh ${PKG} ${OLD_VERSION} → ${NEW_VERSION} (npm)`))
+    assert.ok(result.stderr.includes(`dsh-safe @hyzyn/dsh-safe ${SELF_VERSION} → 8.8.8 (npm)`))
+    const calls = readCalls(fx, 'npm-calls')
+    assert.deepEqual(calls[2], ['install', '-g', `${PKG}@${NEW_VERSION}`, '@hyzyn/dsh-safe@8.8.8'])
+    assert.ok(result.stderr.includes(`dsh 已更新: ${OLD_VERSION} → ${NEW_VERSION}`))
+    assert.ok(result.stderr.includes(`dsh-safe 已更新: ${SELF_VERSION} → 8.8.8`))
+    assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START)) // dsh 更新触发了恢复
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('notify：包装启动时提示 dsh-safe 新版，每天最多一次', async () => {
+  const fx = makeFixture()
+  try {
+    const first = runU(fx, ['web'], { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_SELF_LATEST: NEW_VERSION, DSH_SAFE_NO_UPDATE_CHECK: '' })
+    assert.equal(first.status, 0, `stderr: ${first.stderr}`)
+    assert.ok(first.stderr.includes(`dsh-safe 有新版本 ${NEW_VERSION}（当前 ${SELF_VERSION}）`))
+    assert.ok(first.stderr.includes('update --self'))
+    assert.deepEqual(readCalls(fx, 'dsh-calls'), [['web']]) // 提示不影响启动
+    // 时间戳缓存已写入
+    assert.ok(JSON.parse(readFileSync(join(fx.home, 'dsh-safe', 'update-check.json'), 'utf8')).lastCheckAt)
+    // 第二次启动：缓存生效，不再提示
+    const second = runU(fx, ['web'], { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_SELF_LATEST: NEW_VERSION, DSH_SAFE_NO_UPDATE_CHECK: '' })
+    assert.equal(second.status, 0, `stderr: ${second.stderr}`)
+    assert.ok(!second.stderr.includes('有新版本'))
+    assert.deepEqual(readCalls(fx, 'dsh-calls'), [['web'], ['web']])
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('isNewerVersion：语义化版本比较', () => {
+  assert.equal(isNewerVersion('0.4.0', '0.3.0'), true)
+  assert.equal(isNewerVersion('0.2.0', '0.3.0'), false) // registry 落后于本地开发版 → 不自降级
+  assert.equal(isNewerVersion('0.3.0', '0.3.0'), false)
+  assert.equal(isNewerVersion('1.0.0', '0.9.9'), true)
+  assert.equal(isNewerVersion('0.1.2', '0.1.2-rc.1'), true) // 正式版 > 预发布
+  assert.equal(isNewerVersion('0.1.2-rc.2', '0.1.2-rc.1'), true)
+  assert.equal(isNewerVersion('0.1.2-rc.1', '0.1.2'), false)
+})
+
+test('update：registry 版本低于本地时自身不降级', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runUpdate(fx, ['-y'], { FAKE_NPM_SELF_LATEST: '0.0.9' })
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    const calls = readCalls(fx, 'npm-calls')
+    assert.deepEqual(calls[2], ['install', '-g', `${PKG}@${NEW_VERSION}`]) // 只有 dsh 入计划
+    assert.ok(!result.stderr.includes('dsh-safe 已更新'))
   } finally {
     cleanup(fx.home)
   }

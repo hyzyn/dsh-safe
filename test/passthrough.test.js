@@ -36,6 +36,7 @@ function runSafe(fx, args) {
       DSH_HOME: fx.home,
       PATH: `${fx.binDir}:${process.env.PATH}`,
       DSH_SAFE_LANG: 'zh',
+      DSH_SAFE_NO_UPDATE_CHECK: '1', // 关闭新版提示，测试不依赖网络
       FAKE_DSH_CALLS: join(fx.home, 'calls'),
     },
   })
