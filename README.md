@@ -46,6 +46,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `dsh-safe update [选项]` | 只升级不启动，选项见下 |
 | `dsh-safe list [--profile <名>]` | 查看隔离名单（缺省列出全部 profile） |
 | `dsh-safe restore --profile <名> (--id <id> \| --all) [--dry-run]` | 恢复被自动禁用的插件（升级修复后使用） |
+| `dsh-safe explain [--file <路径>]` | 用 AI 解读一段启动失败 stderr（纯只读，需 `DSH_SAFE_AI_KEY`） |
 | `dsh-safe help`（`-h` / `--help`） | 显示帮助 |
 | `dsh-safe --version`（`-V`） | 显示版本 |
 
@@ -77,6 +78,10 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `DSH_SAFE_LANG=zh\|en` | 强制提示信息语言（缺省跟随 `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE`） |
 | `DSH_SAFE_NO_UPDATE_CHECK=1` | 关闭启动时每天最多一次的 dsh-safe 新版提示 |
 | `DSH_HOME` | dsh 的 home 目录（dsh 自己的环境变量；隔离台账与各 patch 路径随之） |
+| `DSH_SAFE_AI_KEY` | AI 功能 key（未设置 = AI 整体禁用）；默认对接 DeepSeek |
+| `DSH_SAFE_AI_BASE_URL` | AI 接口地址（OpenAI 兼容），默认 `https://api.deepseek.com` |
+| `DSH_SAFE_AI_MODEL` | AI 模型，默认 `deepseek-chat` |
+| `DSH_SAFE_AI_RECOVER=1` | 正则识别不出坏插件时启用 AI 兜底（结果仍走同一隔离管线） |
 
 升级行为：`dsh-safe update` 自动探测 dsh 的包名与安装方式（npm / pnpm 全局安装）、对比最新版本后代跑升级，完成后自动恢复所有被隔离的插件——新 dsh 下仍不兼容的会在下次启动时再次被自动隔离。日常把 `dsh-safe -u web` 当启动命令即可：dsh 已是最新时直接启动（仅一次版本检查），有更新时先升级并恢复隔离再启动，更新检查失败只告警、照常启动。`-u` 后可接 update 的选项（如 `-u -y web`）与包装旗标（如 `-u --max-retries 0 web`）。
 
@@ -86,6 +91,14 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 2. **对照真实行**：扫描 profile patch、`$DSH_HOME/cordis.patch.yml`（home 层）与各 bundle 的 patch，得到「行 id ↔ 插件包名」对照表；只禁用真实存在的行，避免误伤。
 3. **写入托管区块**：在对应 patch 文件末尾追加带标记注释的区块（与 `dsh-mcp-config managed` 同款约定），把命中的行置为 `disabled: true`。用户已有内容与注释原样保留；全新 profile 的 `[]` 模板会被正确替换成块序列。
 4. **台账与恢复**：隔离记录存 `$DSH_HOME/dsh-safe/quarantine.json`。插件升级修复后用 `dsh-safe restore --profile web --all` 摘除区块恢复挂载（`patchReload: live` 的 profile 热生效）。
+
+### AI 能力（可选）
+
+设置 `DSH_SAFE_AI_KEY` 后启用（默认对接 DeepSeek，OpenAI 兼容接口，可用 `DSH_SAFE_AI_BASE_URL` / `DSH_SAFE_AI_MODEL` 换任何兼容服务）：
+
+- **`dsh-safe explain [--file <路径>]`**：读一段启动失败的 stderr（stdin 或文件），输出人话解读与修复建议。纯只读，不碰任何文件。
+- **AI 兜底识别**（`DSH_SAFE_AI_RECOVER=1`）：正则特征识别不出坏插件时（如 dsh 升级换格式），让 AI 从 stderr 里挑元凶——**结果必须仍走同一验证管线**（对照真实 patch 行、第一方保护、dry-run 预览），命中不了照旧透传。仅在启动失败时调用。
+- 隐私：发送前 home 路径脱敏为 `~`；AI 任何失败都静默降级。
 
 ## 安全边界
 

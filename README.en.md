@@ -46,6 +46,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `dsh-safe update [options]` | upgrade only, no boot — options below |
 | `dsh-safe list [--profile <name>]` | show quarantined plugins (defaults to all profiles) |
 | `dsh-safe restore --profile <name> (--id <id> \| --all) [--dry-run]` | re-enable auto-disabled plugins (after a fixed plugin upgrade) |
+| `dsh-safe explain [--file <path>]` | interpret a failed-boot stderr with AI (read-only, needs `DSH_SAFE_AI_KEY`) |
 | `dsh-safe help` (`-h` / `--help`) | show help |
 | `dsh-safe --version` (`-V`) | show version |
 
@@ -77,6 +78,10 @@ Every short flag has an equivalent long form (`-u` = `--update`, `-y` = `--yes`,
 | `DSH_SAFE_LANG=zh\|en` | Force message language (defaults to `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE`) |
 | `DSH_SAFE_NO_UPDATE_CHECK=1` | Disable the at-most-daily dsh-safe new-version notice on boot |
 | `DSH_HOME` | dsh home directory (dsh's own variable; the quarantine ledger and patch paths follow it) |
+| `DSH_SAFE_AI_KEY` | AI feature key (unset = AI disabled entirely); defaults to DeepSeek |
+| `DSH_SAFE_AI_BASE_URL` | AI endpoint (OpenAI-compatible), default `https://api.deepseek.com` |
+| `DSH_SAFE_AI_MODEL` | AI model, default `deepseek-chat` |
+| `DSH_SAFE_AI_RECOVER=1` | enable AI fallback when regex signatures can't identify the broken plugin (results go through the same quarantine pipeline) |
 
 How upgrading works: `dsh-safe update` auto-detects the dsh package name and install method (npm / pnpm global installs), compares against the latest version and runs the upgrade for you, then automatically restores all quarantined plugins — any still incompatible under the new dsh will be auto-quarantined again on the next start. For daily use, just make `dsh-safe -u web` your start command: boots immediately when dsh is already latest (one version check), upgrades + restores first when an update is available, and only warns (still boots) if the update check itself fails. `-u` accepts update options (e.g. `-u -y web`) and wrapper flags (e.g. `-u --max-retries 0 web`).
 
@@ -86,6 +91,14 @@ How upgrading works: `dsh-safe update` auto-detects the dsh package name and ins
 2. **Match against real rows**: it scans the profile patch, `$DSH_HOME/cordis.patch.yml` (home layer) and each bundle's patch to build a "row id ↔ plugin package" mapping; only rows that actually exist are disabled, avoiding collateral damage.
 3. **Managed block writing**: it appends a marker-commented managed block at the end of the matching patch file (same convention as `dsh-mcp-config managed`), setting matched rows to `disabled: true`. Existing user content and comments are preserved; a fresh profile's `[]` template is correctly replaced with a block sequence.
 4. **Ledger & restore**: quarantine records live in `$DSH_HOME/dsh-safe/quarantine.json`. Once a plugin upgrade fixes the issue, `dsh-safe restore --profile web --all` removes the managed block and re-mounts the plugin (hot-applied for profiles with `patchReload: live`).
+
+### AI Capabilities (optional)
+
+Enabled by setting `DSH_SAFE_AI_KEY` (defaults to DeepSeek; OpenAI-compatible — swap providers via `DSH_SAFE_AI_BASE_URL` / `DSH_SAFE_AI_MODEL`):
+
+- **`dsh-safe explain [--file <path>]`**: feed it a failed-boot stderr (stdin or file) and get a plain-language interpretation plus fix suggestions. Strictly read-only.
+- **AI fallback identification** (`DSH_SAFE_AI_RECOVER=1`): when the regex signatures can't identify the broken plugin (e.g. after a dsh upgrade changes formats), the AI picks the culprit from the stderr — **its output must pass the exact same validation pipeline** (match against real patch rows, first-party protection, dry-run preview); unmatched picks are passed through as before. Only invoked on startup failure.
+- Privacy: home paths are redacted to `~` before sending; any AI failure degrades silently.
 
 ## Safety Boundaries
 
