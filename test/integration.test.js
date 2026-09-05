@@ -80,7 +80,7 @@ process.exit(s.code ?? 0)
   return path
 }
 
-function runSafe(home, args) {
+function runSafe(home, args, extraEnv = {}) {
   return spawnSync(process.execPath, [BIN, ...args], {
     encoding: 'utf8',
     env: {
@@ -88,6 +88,8 @@ function runSafe(home, args) {
       DSH_HOME: home,
       FAKE_STATE: join(home, 'fake-dsh-attempts'),
       PATH: `${join(home, 'bin')}:${process.env.PATH}`,
+      DSH_SAFE_LANG: 'zh', // 固定语言，断言与宿主 locale 无关
+      ...extraEnv,
     },
   })
 }
@@ -174,6 +176,48 @@ test('集成：max-retries 0 时不隔离不重试', () => {
     assert.equal(result.status, 1)
     assert.equal(readFileSync(fx.stateFile, 'utf8').trim(), '1')
     assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('集成：英文环境（DSH_SAFE_LANG=en）输出英文', () => {
+  const fx = makeFixture()
+  try {
+    makeFakeDsh(fx.home, [
+      { code: 1, stderr: FAIL_LIST_STDERR },
+      { code: 1, stderr: FAIL_LIST_STDERR }, // 重试后仍失败：坏行已禁用 → 透传退出码 1
+    ])
+    const result = runSafe(fx.home, ['web'], { DSH_SAFE_LANG: 'en' })
+    assert.equal(result.status, 1, `stderr: ${result.stderr}`)
+    assert.equal(result.status, 1)
+    assert.ok(result.stderr.includes('disabled @acme/broken-plugin'))
+    assert.ok(result.stderr.includes('reason: '))
+    assert.ok(!result.stderr.includes('已禁用'))
+    const help = runSafe(fx.home, ['help'], { DSH_SAFE_LANG: 'en' })
+    assert.ok(help.stdout.includes('startup fuse for dsh'))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('集成：重试仍失败 → 已禁用行（含 bundle 行）不重复隔离，透传退出码', () => {
+  const fx = makeFixture()
+  try {
+    makeFakeDsh(fx.home, [
+      { code: 1, stderr: FAIL_LIST_STDERR },
+      { code: 1, stderr: FAIL_LIST_STDERR },
+    ])
+    const result = runSafe(fx.home, ['web'])
+    assert.equal(result.status, 1, `stderr: ${result.stderr}`)
+    // 恰好两轮 dsh：第二轮所有命中行已禁用，直接透传，不再重试第三次
+    assert.equal(readFileSync(fx.stateFile, 'utf8').trim(), '2')
+    // 台账没有因重复隔离而翻倍
+    const ledger = JSON.parse(readFileSync(join(fx.home, 'dsh-safe', 'quarantine.json'), 'utf8'))
+    assert.equal(ledger.profiles.web.length, 2)
+    // 只有第一轮的两条禁用消息
+    assert.equal(result.stderr.split('已禁用').length - 1, 2)
+    assert.ok(result.stderr.includes('没有识别出'))
   } finally {
     cleanup(fx.home)
   }

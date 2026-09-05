@@ -50,6 +50,8 @@ dsh-safe help
 | `--max-retries <n>` | 自动隔离后最多重试启动的次数（默认 2；`0` 表示不隔离只透传） |
 | `--allow-first-party` | 允许自动禁用 `@deepseek-ai/*` 第一方插件（默认跳过，需手动处理） |
 
+提示信息语言跟随 `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE`（`zh*` 为中文，其余英文），也可用环境变量 `DSH_SAFE_LANG=zh|en` 强制指定。
+
 ## 工作原理
 
 1. **识别失败**：dsh 启动失败时，stderr 里有四类特征（`plugin(s) failed to load: …`、`N entries did not activate` 逐行失败、`failed to apply/import loader entry <id> (<name>)`、外层栈 `…#<entryId>`）。dsh-safe 从中提取坏插件的包名与行 id。

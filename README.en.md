@@ -23,7 +23,7 @@ dsh-safe web          # same as dsh web, with auto-quarantine
 dsh-safe --profile tui --patch ./extra.yml
 ```
 
-Sample output (a broken plugin is quarantined, then startup retries — CLI messages are currently Chinese-only):
+Sample output (shown with a zh locale: a broken plugin is quarantined, then startup retries):
 
 ```
 Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broken (@smoke/broken-impl): Cannot find package '@smoke/broken-impl' ...
@@ -49,6 +49,8 @@ Wrapper-mode options (must come before the profile / subcommand):
 | `--dry-run` | Parse and report only; no files are modified |
 | `--max-retries <n>` | Max startup retries after an auto-quarantine (default 2; `0` means pass through without quarantining) |
 | `--allow-first-party` | Allow auto-disabling first-party `@deepseek-ai/*` plugins (skipped by default; handle manually) |
+
+Messages follow `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE` (`zh*` → Chinese, otherwise English); force with `DSH_SAFE_LANG=zh|en`.
 
 ## How It Works
 
