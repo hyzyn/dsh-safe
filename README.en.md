@@ -81,6 +81,7 @@ Messages follow `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE` (`zh*` → Chines
 - Rows inserted via `--patch` overlay layers are not part of the mapping (only the profile patch, the home patch and bundle patches are scanned).
 - To capture stderr, the wrapper pipes dsh's stderr (content is still echoed to the terminal in real time); stdout/stdin pass through unaffected.
 - Match patterns target the dsh 0.1.x error formats; a major dsh upgrade that changes them requires updating the parser.
+- Windows is best-effort: update / --self / list / restore are adapted (.cmd shim parsing, shelled npm/pnpm invocations), but the wrapped dsh boot's child-process spawn is unverified on Windows.
 
 ## Development
 
