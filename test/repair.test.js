@@ -267,7 +267,7 @@ test('repair：重复挂载类 → 拒接并给针对性指引', async () => {
       write: () => {},
     })
     assert.equal(code, 1)
-    assert.ok(lines.some((l) => l.includes('重复挂载') && l.includes('bundles')))
+    assert.ok(lines.some((l) => l.includes('重装包无法修复')))
     assert.equal(called, false)
   } finally {
     process.env.DSH_HOME = oldHome
@@ -287,7 +287,7 @@ test('wrap：duplicate 失败 → 不做无效隔离，给指引并透传', asyn
       log: (l) => lines.push(l),
     })
     assert.equal(code, 1)
-    assert.ok(lines.some((l) => l.includes('重复挂载') && l.includes('bundles')))
+    assert.ok(lines.some((l) => l.includes('一键修复：dsh-safe repair describe-image')))
     assert.ok(lines.some((l) => l.includes('dsh-safe explain')))
     assert.ok(!lines.some((l) => l.includes('已禁用'))) // 不做无效的禁用+重试
     assert.ok(readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START)) // 原隔离状态原样保留
@@ -587,6 +587,34 @@ test('-r --profile X --port N：profile 同时作用于修复与启动', async (
     assert.equal(code, 0)
     // 启动参数自动补上 --profile
     assert.deepEqual(bootCalls, [['--profile', 'web-copy2', '--port', '3088']])
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
+test('-r --profile X：未入账的重复挂载 → 预检去重后启动', async () => {
+  const fx = makeDupFixture()
+  writeFileSync(fx.ledgerPath, JSON.stringify({ version: 1, profiles: {} }, null, 2))
+  const bootCalls = []
+  const lines = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    const code = await cmdRepairAndBoot(['-y', '--profile', 'web', '--port', '3088'], {
+      boot: async (args) => {
+        bootCalls.push(args)
+        return 0
+      },
+      spawn: () => ({ status: 0 }),
+      log: (l) => lines.push(l),
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    const manifest = JSON.parse(readFileSync(fx.manifestPath, 'utf8'))
+    assert.deepEqual(manifest.dsh.profile.bundles, ['@linxin666/dsh-web-ui-all'])
+    assert.ok(lines.some((l) => l.includes('去重完成')))
+    assert.deepEqual(bootCalls, [['--profile', 'web', '--port', '3088']])
   } finally {
     process.env.DSH_HOME = oldHome
     cleanup(fx.home)
