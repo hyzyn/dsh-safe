@@ -44,6 +44,6 @@ jobs:
             fi
           } > release-notes.md
           cat release-notes.md
-          gh release create "$GITHUB_REF_NAME" --notes-file release-notes.md \
-            || gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md \
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md \
+            || gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md \
             || true
