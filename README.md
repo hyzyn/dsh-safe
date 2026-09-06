@@ -48,6 +48,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `dsh-safe doctor` | 环境体检：版本、DSH_HOME、profiles、台账、各 patch 健康度 |
 | `dsh-safe restore [--profile <名>] (--id <id> \| --all) [--dry-run]` | 恢复被自动禁用的插件（省略 `--profile` 时遍历台账全部 profile） |
 | `dsh-safe explain [--file <路径>]` | 用 AI 解读一段启动失败 stderr（纯只读，需 `DSH_SAFE_AI_KEY`） |
+| `dsh-safe repair <id> [--profile <名>] [--to <版本>] [-y] [--dry-run]` | 重装/升级被隔离的插件并自动恢复（限模块解析失败类；经 `dsh plugin` 的 pnpm 通道安装） |
 | `dsh-safe help`（`-h` / `--help`） | 显示帮助 |
 | `dsh-safe --version`（`-V`） | 显示版本 |
 
