@@ -47,7 +47,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `dsh-safe list [--profile <名>] [--json]` | 查看隔离名单（`--json` 输出结构化 JSON，缺省全部 profile） |
 | `dsh-safe doctor` | 环境体检：版本、DSH_HOME、profiles、台账、各 patch 健康度 |
 | `dsh-safe restore [--profile <名>] (--id <id> \| --all) [--dry-run]` | 恢复被自动禁用的插件（省略 `--profile` 时遍历台账全部 profile） |
-| `dsh-safe explain [--file <路径>]` | 用 AI 解读一段启动失败 stderr（纯只读，需 `DSH_SAFE_AI_KEY`） |
+| `dsh-safe explain [--profile <名> \| --file <路径>]` | 用 AI 解读启动失败：默认解读最近一次失败记录，`--profile` 现场试启并解读，`--file`/stdin 读任意日志（需 `DSH_SAFE_AI_KEY`） |
 | `dsh-safe repair [id] [--profile <名>] [--to <版本>] [-y] [--dry-run]` | 重装/升级被隔离的插件并自动恢复（限模块解析失败类；经 `dsh plugin` 的 pnpm 通道安装） |
 | `dsh-safe help`（`-h` / `--help`） | 显示帮助 |
 | `dsh-safe --version`（`-V`） | 显示版本 |
@@ -99,7 +99,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 
 设置 `DSH_SAFE_AI_KEY` 后启用（默认对接 DeepSeek，OpenAI 兼容接口，可用 `DSH_SAFE_AI_BASE_URL` / `DSH_SAFE_AI_MODEL` 换任何兼容服务）：
 
-- **`dsh-safe explain [--file <路径>]`**：读一段启动失败的 stderr（stdin 或文件），输出人话解读与修复建议。纯只读，不碰任何文件。
+- **`dsh-safe explain [--profile <名> | --file <路径>]`**：默认解读最近一次启动失败（失败时 stderr 自动持久化到 `$DSH_HOME/dsh-safe/last-failure-<profile>.log`，人也可直接翻阅）；`--profile` 现场试启该 profile 并解读（60 秒超时）；`--file`/stdin 读任意日志。纯只读，不碰 patch/台账。
 - **AI 兜底识别**（`DSH_SAFE_AI_RECOVER=1`）：正则特征识别不出坏插件时（如 dsh 升级换格式），让 AI 从 stderr 里挑元凶——**结果必须仍走同一验证管线**（对照真实 patch 行、第一方保护、dry-run 预览），命中不了照旧透传。仅在启动失败时调用。
 - 隐私：发送前 home 路径脱敏为 `~`；AI 任何失败都静默降级。
 

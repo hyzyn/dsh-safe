@@ -47,7 +47,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `dsh-safe list [--profile <name>] [--json]` | show quarantined plugins (`--json` outputs structured JSON; defaults to all profiles) |
 | `dsh-safe doctor` | environment check: versions, DSH_HOME, profiles, ledger, patch health |
 | `dsh-safe restore [--profile <name>] (--id <id> \| --all) [--dry-run]` | re-enable auto-disabled plugins (omit `--profile` to cover every profile in the ledger) |
-| `dsh-safe explain [--file <path>]` | interpret a failed-boot stderr with AI (read-only, needs `DSH_SAFE_AI_KEY`) |
+| `dsh-safe explain [--profile <name> \| --file <path>]` | interpret a boot failure with AI: defaults to the last failure record, `--profile` boots the profile live, `--file`/stdin read any log (needs `DSH_SAFE_AI_KEY`) |
 | `dsh-safe repair [id] [--profile <name>] [--to <version>] [-y] [--dry-run]` | reinstall/upgrade a quarantined plugin and auto-restore it (module-resolution failures only; installs via `dsh plugin`'s pnpm channel) |
 | `dsh-safe help` (`-h` / `--help`) | show help |
 | `dsh-safe --version` (`-V`) | show version |
@@ -99,7 +99,7 @@ How upgrading works: `dsh-safe update` auto-detects the dsh package name and ins
 
 Enabled by setting `DSH_SAFE_AI_KEY` (defaults to DeepSeek; OpenAI-compatible — swap providers via `DSH_SAFE_AI_BASE_URL` / `DSH_SAFE_AI_MODEL`):
 
-- **`dsh-safe explain [--file <path>]`**: feed it a failed-boot stderr (stdin or file) and get a plain-language interpretation plus fix suggestions. Strictly read-only.
+- **`dsh-safe explain [--profile <name> | --file <path>]`**: interprets the most recent boot failure by default (stderr is persisted to `$DSH_HOME/dsh-safe/last-failure-<profile>.log` on every failed wrapped boot, for humans too); `--profile` boots that profile live and interprets (60s timeout); `--file`/stdin read any log. Strictly read-only — never touches the patch or ledger.
 - **AI fallback identification** (`DSH_SAFE_AI_RECOVER=1`): when the regex signatures can't identify the broken plugin (e.g. after a dsh upgrade changes formats), the AI picks the culprit from the stderr — **its output must pass the exact same validation pipeline** (match against real patch rows, first-party protection, dry-run preview); unmatched picks are passed through as before. Only invoked on startup failure.
 - Privacy: home paths are redacted to `~` before sending; any AI failure degrades silently.
 
