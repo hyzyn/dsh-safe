@@ -14,11 +14,11 @@ const RESOLVE_REASON =
 const CODE_REASON = 'TypeError: ctx.clientUi.registerModule is not a function'
 
 /** ledger 里隔离了 badplug（可指定 reason 类型）+ 托管区块已写入。 */
-function makeFixture(reason = RESOLVE_REASON) {
+function makeFixture(reason = RESOLVE_REASON, id = 'badplug', name = '@acme/broken-plugin') {
   const home = mkdtempSync(join(tmpdir(), 'dsh-safe-repair-'))
   const patchPath = join(home, 'profiles', 'web', 'cordis.patch.yml')
   mkdirSync(join(home, 'profiles', 'web'), { recursive: true })
-  const entry = { id: 'badplug', name: '@acme/broken-plugin', reason, quarantinedAt: '2026-01-01T00:00:00.000Z', file: patchPath }
+  const entry = { id, name, reason, quarantinedAt: '2026-01-01T00:00:00.000Z', file: patchPath }
   writeFileSync(patchPath, `- id: webserver\n  config:\n    port: 3080\n`)
   writeFileSync(patchPath, applyManagedBlock(readFileSync(patchPath, 'utf8'), buildManagedBlock([entry])).text)
   const ledgerDir = join(home, 'dsh-safe')
@@ -211,6 +211,38 @@ test('repair：导出不匹配类（插件落后于 dsh API）→ 升级插件�
     assert.equal(code, 0)
     assert.deepEqual(calls[0].args, ['plugin', '--profile', 'web', 'add', '@acme/broken-plugin@latest'])
     assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
+test('repair：导出不匹配 + reason 被截断（真实场景）→ 仍可修复', async () => {
+  const { summarizeLine } = await import('../lib/failures.js')
+  // 真实案例原文（长 entry id + 长 scoped 包名），160 字符截断恰好切在
+  // "does not provide an …"——"export" 一词被 … 吃掉
+  const full =
+    "Error: failed to import loader entry describe-image (@linxin666/dsh-tool-describe-image): The requested module '@deepseek-ai/dsh-settings' does not provide an export named 'getSetting'"
+  const truncated = summarizeLine(full)
+  assert.ok(truncated.endsWith('…'))
+  assert.ok(truncated.includes('does not provide an '))
+  assert.ok(!truncated.includes('does not provide an export'))
+
+  const fx = makeFixture(truncated, 'describe-image', '@linxin666/dsh-tool-describe-image')
+  const calls = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    const code = await cmdRepair(['-y', 'describe-image'], {
+      spawn: (file, args) => {
+        calls.push({ file, args })
+        return { status: 0 }
+      },
+      log: () => {},
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    assert.deepEqual(calls[0].args, ['plugin', '--profile', 'web', 'add', '@linxin666/dsh-tool-describe-image@latest'])
   } finally {
     process.env.DSH_HOME = oldHome
     cleanup(fx.home)
