@@ -65,6 +65,71 @@ test('explain：默认解读最近一次失败记录（home 路径脱敏）', as
   }
 })
 
+test('explain：未知参数 → 严格报错，不静默吞', async () => {
+  process.env.DSH_SAFE_AI_KEY = 'test-key'
+  const fx = makeFixture({ withFailure: false })
+  const lines = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    let called = false
+    const code = await cmdExplain(['describe-image', '--profile', 'web'], {
+      spawn: () => {
+        called = true
+        return { status: 0, stderr: '' }
+      },
+      isTTY: true,
+      log: (l) => lines.push(l),
+      write: () => {},
+    })
+    assert.equal(code, 2)
+    assert.ok(lines.some((l) => l.includes('无法识别的参数') && l.includes('describe-image')))
+    assert.equal(called, false)
+  } finally {
+    process.env.DSH_HOME = oldHome
+    rmSync(fx.home, { recursive: true, force: true })
+  }
+})
+
+test('explain：-- 之后的参数透传给 dsh 试启', async () => {
+  process.env.DSH_SAFE_AI_KEY = 'test-key'
+  const fx = makeFixture({ withFailure: false })
+  const calls = []
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, body: JSON.parse(init.body) })
+    return okResponse('端口占用解读')
+  }
+  const lines = []
+  const written = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    const code = await cmdExplain(['--profile', 'web-copy', '--', '--port', '3084'], {
+      spawn: (file, args) => {
+        calls.push({ file, args })
+        return { status: 1, stderr: 'Error: listen EADDRINUSE 3080\n' }
+      },
+      isTTY: true,
+      log: (l) => lines.push(l),
+      write: (l) => written.push(l),
+    })
+    assert.equal(code, 0)
+    assert.deepEqual(calls[0].args, ['--profile', 'web-copy', '--port', '3084'])
+    assert.equal(written[0], '端口占用解读')
+  } finally {
+    process.env.DSH_HOME = oldHome
+    rmSync(fx.home, { recursive: true, force: true })
+  }
+})
+
+test('explain：-- 透传但缺 --profile → 报错', async () => {
+  process.env.DSH_SAFE_AI_KEY = 'test-key'
+  const lines = []
+  const code = await cmdExplain(['--', '--port', '3084'], { isTTY: true, log: (l) => lines.push(l), write: () => {} })
+  assert.equal(code, 2)
+  assert.ok(lines.some((l) => l.includes('需要与 --profile 一起使用')))
+})
+
 test('explain：--profile 现场试启失败 → 解读 stderr', async () => {
   process.env.DSH_SAFE_AI_KEY = 'test-key'
   const fx = makeFixture({ withFailure: false })
