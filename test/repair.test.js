@@ -7,6 +7,7 @@ import { join } from 'node:path'
 process.env.DSH_SAFE_LANG = 'zh' // 本文件的 t() 断言固定中文（测试文件独立进程运行）
 
 const { cmdRepair } = await import('../lib/repair.js')
+const { runWrapped } = await import('../lib/wrap.js')
 const { applyManagedBlock, buildManagedBlock, MANAGED_START } = await import('../lib/patchfile.js')
 
 const RESOLVE_REASON =
@@ -268,6 +269,28 @@ test('repair：重复挂载类 → 拒接并给针对性指引', async () => {
     assert.equal(code, 1)
     assert.ok(lines.some((l) => l.includes('重复挂载') && l.includes('bundles')))
     assert.equal(called, false)
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
+test('wrap：duplicate 失败 → 不做无效隔离，给指引并透传', async () => {
+  const fx = makeFixture()
+  const lines = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    const code = await runWrapped({
+      forwardArgs: ['web'],
+      spawn: async () => ({ code: 1, stderr: 'TypeError: duplicate loader entry id: describe-image\n' }),
+      log: (l) => lines.push(l),
+    })
+    assert.equal(code, 1)
+    assert.ok(lines.some((l) => l.includes('重复挂载') && l.includes('bundles')))
+    assert.ok(lines.some((l) => l.includes('dsh-safe explain')))
+    assert.ok(!lines.some((l) => l.includes('已禁用'))) // 不做无效的禁用+重试
+    assert.ok(readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START)) // 原隔离状态原样保留
   } finally {
     process.env.DSH_HOME = oldHome
     cleanup(fx.home)
