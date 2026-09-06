@@ -48,8 +48,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `dsh-safe doctor` | environment check: versions, DSH_HOME, profiles, ledger, patch health |
 | `dsh-safe restore [--profile <name>] (--id <id> \| --all) [--dry-run]` | re-enable auto-disabled plugins (omit `--profile` to cover every profile in the ledger) |
 | `dsh-safe explain [id] [--profile <name> \| --file <path>]` | interpret failure info with AI: an `id` interprets that quarantine record (with repair advice); defaults to the last failure log, falling back to the ledger; `--file`/stdin read any log (needs `DSH_SAFE_AI_KEY`) |
-| `dsh-safe -r [dsh args…]` | repair all repairable quarantined plugins first, then boot in wrap mode (`--repair` alias; mirrors `-u`) |
-| `dsh-safe repair [id] [--all] [--profile <name>] [--to <version>] [-y] [--dry-run]` | reinstall/upgrade a quarantined plugin and auto-restore it (failures a reinstall/upgrade may fix: package resolution, export mismatches; installs via `dsh plugin`'s pnpm channel); duplicate mounts support auto-dedup (interactively pick which source to keep) |
+| `dsh-safe repair [id] [--all] [--profile <name>] [--to <version>] [-y] [--dry-run]` | reinstall/upgrade a quarantined plugin and auto-restore it (failures a reinstall/upgrade may fix: package resolution, export mismatches; installs via `dsh plugin`'s pnpm channel); duplicate mounts support auto-dedup (interactively pick which source to keep); well suited to being run by the AI agent in the web UI |
 | `dsh-safe help` (`-h` / `--help`) | show help |
 | `dsh-safe --version` (`-V`) | show version |
 
@@ -61,7 +60,7 @@ Every short flag has an equivalent long form (`-u` = `--update`, `-y` = `--yes`,
 | --- | --- |
 | `--dry-run` | Parse and report only; no files are modified |
 | `--max-retries <n>` | Max startup retries after an auto-quarantine (default 2; `0` means pass through without quarantining) |
-| `--allow-first-party` | Allow auto-disabling first-party `@deepseek-ai/*` plugins (skipped by default; handle manually) |
+| `--allow-first-party` | Allow auto-disabling first-party `@deepseek-ai/*` plugins and removing official bundles during duplicate dedupe (skipped by default; handle manually) |
 | `--exclude <id-or-pkg>` | Quarantine exclusion list (repeatable) — matched rows are never auto-disabled; can also live in `config.json` |
 
 ### update / -u options (after `-u` or `update`; wrapper flags before the dsh args still apply)
@@ -96,6 +95,25 @@ How upgrading works: `dsh-safe update` auto-detects the dsh package name and ins
 3. **Managed block writing**: it appends a marker-commented managed block at the end of the matching patch file (same convention as `dsh-mcp-config managed`), setting matched rows to `disabled: true`. Existing user content and comments are preserved; a fresh profile's `[]` template is correctly replaced with a block sequence.
 4. **Ledger & restore**: quarantine records live in `$DSH_HOME/dsh-safe/quarantine.json`. Once a plugin upgrade fixes the issue, `dsh-safe restore --profile web --all` removes the managed block and re-mounts the plugin (hot-applied for profiles with `patchReload: live`).
 
+### Let the AI agent in the web UI take over repairs (recommended)
+
+The wrapped boot already owns keep-alive end to end: failing plugins are auto-quarantined and retried, duplicate mounts are auto-deduped and retried. After boot, the ledger records left behind are the "fix-me list" — hand repairs to the AI agent in the web UI. Add the following snippet to a dsh agent preset (or system prompt) so the agent can discover and fix issues proactively:
+
+```text
+dsh-safe is installed on this machine (a startup fuse for dsh). When the user
+reports a missing plugin feature, a boot warning, or misbehaving plugins:
+1. Run dsh-safe list --json to inspect the quarantine ledger (which plugins
+   are auto-disabled, why, when).
+2. If interpretation is needed, run dsh-safe explain <id> (requires DSH_SAFE_AI_KEY).
+3. Repair based on the cause:
+   - missing/stale package → dsh-safe repair <id> -y (reinstall latest)
+   - known compatible version → dsh-safe repair <id> --to <version> -y
+   - duplicate mount → dsh-safe repair <id> -y (redundant source removed)
+   - no compatible upstream release yet → keep it disabled and say so.
+4. Verify with dsh-safe --profile <name>; still-broken plugins are
+   auto-quarantined again and never take down the boot.
+```
+
 ### AI Capabilities (optional)
 
 Enabled by setting `DSH_SAFE_AI_KEY` (defaults to DeepSeek; OpenAI-compatible — swap providers via `DSH_SAFE_AI_BASE_URL` / `DSH_SAFE_AI_MODEL`):
@@ -106,7 +124,7 @@ Enabled by setting `DSH_SAFE_AI_KEY` (defaults to DeepSeek; OpenAI-compatible �
 
 ## Safety Boundaries
 
-- **First-party protection**: rows of `@deepseek-ai/*` plugins are skipped by default (disabling plugins like `dsh-web-app` would strip dsh of its core capabilities); pass `--allow-first-party` to touch them.
+- **First-party protection**: rows of `@deepseek-ai/*` plugins are skipped by default (disabling plugins like `dsh-web-app` would strip dsh of its core capabilities); pass `--allow-first-party` to touch them. Duplicate dedupe is guarded the same way: official sources are kept by default, and removing an official bundle requires an explicit flag or interactive confirmation, so official rows like webserver are never unmounted as collateral.
 - **Startup-phase failures only**: module resolution failures / `apply` throws / timed-out service injection. Uncaught runtime exceptions are still handled by dsh's own fail-loud policy and are out of scope for boot quarantine.
 - **Auditable**: every write records the reason and a timestamp; `--dry-run` previews which plugins would be disabled.
 - **Faithful pass-through**: when no broken plugin can be identified, the retry limit is exceeded, or for `dsh plugin` (pnpm forwarding), the exit code is passed through untouched and no files are modified.

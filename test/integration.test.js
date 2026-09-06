@@ -97,6 +97,35 @@ function runSafe(home, args, extraEnv = {}) {
 
 const cleanup = (home) => rmSync(home, { recursive: true, force: true })
 
+/** 官方 webserver 场景：bundle 层行带官方包名，profile 层覆盖行只写 config（无 name）。 */
+function makeWebserverFixture() {
+  const home = mkdtempSync(join(tmpdir(), 'dsh-safe-webserver-'))
+  const profileDir = join(home, 'profiles', 'web')
+  const bundleDir = join(profileDir, 'node_modules', '@deepseek-ai', 'dsh-web-app')
+  mkdirSync(bundleDir, { recursive: true })
+  mkdirSync(join(home, 'bin'), { recursive: true })
+  writeFileSync(
+    join(profileDir, 'package.json'),
+    JSON.stringify(
+      { name: 'dsh-profile-web', private: true, dsh: { profile: { bundles: ['@deepseek-ai/dsh-web-app'] } } },
+      null, 2,
+    ),
+  )
+  const patchPath = join(profileDir, 'cordis.patch.yml')
+  // 真实场景（绑 host/port 的官方推荐配置）：覆盖行不重述 name，包名只存在于 bundle 层行
+  writeFileSync(patchPath, `- id: webserver\n  config:\n    host: '0.0.0.0'\n    port: 3080\n`)
+  writeFileSync(
+    join(bundleDir, 'package.json'),
+    JSON.stringify({ name: '@deepseek-ai/dsh-web-app', dsh: { bundle: { patch: 'cordis.patch.yml' } } }),
+  )
+  writeFileSync(
+    join(bundleDir, 'cordis.patch.yml'),
+    `- insert:\n    - id: webserver\n      name: '@deepseek-ai/dsh-host-webserver'\n      inject: [webStartup]\n`,
+  )
+  const stateFile = join(home, 'fake-dsh-attempts')
+  return { home, patchPath, stateFile }
+}
+
 test('集成：启动失败 → 自动隔离两个坏插件 → 重试成功', () => {
   const fx = makeFixture()
   try {
@@ -135,6 +164,30 @@ test('集成：第一方插件默认跳过，原样透传退出码', () => {
     assert.ok(result.stderr.includes('跳过第一方插件 @deepseek-ai/dsh-web-app'))
     const patch = readFileSync(fx.patchPath, 'utf8')
     assert.ok(!patch.includes(MANAGED_START))
+    assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('集成：官方插件被 profile 覆盖行（无 name）遮蔽 → 仍按包名识别第一方，不隔离', () => {
+  const fx = makeWebserverFixture()
+  try {
+    // 报错按 entry id 命中（reEntry / 外层栈），同 id 的 profile 覆盖行没有 name：
+    // 包名必须从 bundle 层行回退取得，第一方保护才不会被覆盖行绕过
+    makeFakeDsh(fx.home, [
+      {
+        code: 1,
+        stderr:
+          "Error: failed to import loader entry webserver (@deepseek-ai/dsh-host-webserver): Cannot find package '@deepseek-ai/dsh-host-webserver' imported from /Users/me/.dsh/profiles/web/cordis.patch.yml\n" +
+          '    at Object.import (file:///opt/dsh/lib/loader.js:244:9)\n',
+      },
+    ])
+    const result = runSafe(fx.home, ['web'])
+    assert.equal(result.status, 1, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('跳过第一方插件 @deepseek-ai/dsh-host-webserver'))
+    assert.ok(!result.stderr.includes('已禁用'))
+    assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
     assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
   } finally {
     cleanup(fx.home)

@@ -48,8 +48,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `dsh-safe doctor` | 环境体检：版本、DSH_HOME、profiles、台账、各 patch 健康度 |
 | `dsh-safe restore [--profile <名>] (--id <id> \| --all) [--dry-run]` | 恢复被自动禁用的插件（省略 `--profile` 时遍历台账全部 profile） |
 | `dsh-safe explain [id] [--profile <名> \| --file <路径>]` | 用 AI 解读失败信息：指定 `id` 解读该条隔离记录（给 repair 建议）；默认解读最近一次失败日志，无日志则解读隔离台账；`--file`/stdin 读任意日志（需 `DSH_SAFE_AI_KEY`） |
-| `dsh-safe -r [dsh 参数…]` | 先修复全部可修复的隔离记录，再按包装模式启动（`--repair` 等价；与 `-u` 对称） |
-| `dsh-safe repair [id] [--all] [--profile <名>] [--to <版本>] [-y] [--dry-run]` | 重装/升级被隔离的插件并自动恢复（限重装/升级可能修复的失败：包解析失败、导出版本不匹配等；经 `dsh plugin` 的 pnpm 通道安装）；重复挂载类支持自动去重（交互选择保留哪个来源，从 bundles 移除冗余） |
+| `dsh-safe repair [id] [--all] [--profile <名>] [--to <版本>] [-y] [--dry-run]` | 重装/升级被隔离的插件并自动恢复（限重装/升级可能修复的失败：包解析失败、导出版本不匹配等；经 `dsh plugin` 的 pnpm 通道安装）；重复挂载类支持自动去重（交互选择保留哪个来源，从 bundles 移除冗余）；适合交给 web UI 里的 AI agent 执行 |
 | `dsh-safe help`（`-h` / `--help`） | 显示帮助 |
 | `dsh-safe --version`（`-V`） | 显示版本 |
 
@@ -61,7 +60,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | --- | --- |
 | `--dry-run` | 只解析与报告，不修改任何文件 |
 | `--max-retries <n>` | 自动隔离后最多重试启动的次数（默认 2；`0` 表示不隔离只透传） |
-| `--allow-first-party` | 允许自动禁用 `@deepseek-ai/*` 第一方插件（默认跳过，需手动处理） |
+| `--allow-first-party` | 允许自动禁用 `@deepseek-ai/*` 第一方插件，duplicate 去重时允许移除官方 bundle（默认跳过，需手动处理） |
 | `--exclude <id或包名>` | 隔离豁免名单（可重复），命中的行永不自动禁用；也可写进 `config.json` |
 
 ### update / -u 选项（写在 `-u` 或 `update` 之后；其前的包装旗标照常生效）
@@ -104,9 +103,27 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 - **AI 兜底识别**（`DSH_SAFE_AI_RECOVER=1`）：正则特征识别不出坏插件时（如 dsh 升级换格式），让 AI 从 stderr 里挑元凶——**结果必须仍走同一验证管线**（对照真实 patch 行、第一方保护、dry-run 预览），命中不了照旧透传。仅在启动失败时调用。
 - 隐私：发送前 home 路径脱敏为 `~`；AI 任何失败都静默降级。
 
+### 让 web UI 里的 AI agent 接管修复（推荐）
+
+包装启动自带完整的保活：插件失败自动隔离重试，重复挂载自动去重后重试。启动成功后，台账里留下的记录就是"待修复清单"——把修复交给 web UI 里的 AI agent。将下面片段加入 dsh 的 Agent 预设（或系统提示），agent 就能主动发现并修复：
+
+```text
+本机装有 dsh-safe（dsh 的启动保险丝）。当用户报告插件功能缺失、启动
+警告或插件行为异常时：
+1. 运行 dsh-safe list --json 查看隔离台账（哪些插件被自动禁用、原因、时间）。
+2. 需要解读时运行 dsh-safe explain <id>（设置 DSH_SAFE_AI_KEY 后可用）。
+3. 按原因修复：
+   - 包缺失/版本落后 → dsh-safe repair <id> -y（重装 latest）
+   - 已知兼容版本 → dsh-safe repair <id> --to <版本> -y（降级/指定版本）
+   - 重复挂载 → dsh-safe repair <id> -y（自动移除冗余挂载来源）
+   - 上游暂无兼容版本 → 保持禁用，并向用户说明。
+4. 修复后用 dsh-safe --profile <名> 重启验证；仍失败的会被自动重新隔离，
+   不会拖垮启动。
+```
+
 ## 安全边界
 
-- **第一方保护**：`@deepseek-ai/*` 的行默认跳过（禁用 `dsh-web-app` 这类插件会让 dsh 失去核心能力），需要 `--allow-first-party` 才会动。
+- **第一方保护**：`@deepseek-ai/*` 的行默认跳过（禁用 `dsh-web-app` 这类插件会让 dsh 失去核心能力），需要 `--allow-first-party` 才会动；duplicate 自动去重同受保护——缺省保留官方来源，移除官方 bundle 需显式允许或交互确认，避免连带卸载 webserver 等官方行。
 - **只动启动期失败**：模块解析失败 / `apply` 抛错 / 等不到注入服务。运行期的未捕获异常仍由 dsh 自身的 fail-loud 策略处理，不属于启动隔离范围。
 - **可审计**：每次写入都带原因与时间戳；`--dry-run` 可以先看会禁用谁。
 - **原样透传**：识别不出坏插件、超过重试上限、`dsh plugin`（pnpm 转发）等情况，退出码原样透传，不做任何修改。
