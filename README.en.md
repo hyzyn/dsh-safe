@@ -99,7 +99,7 @@ How upgrading works: `dsh-safe update` auto-detects the dsh package name and ins
 
 Enabled by setting `DSH_SAFE_AI_KEY` (defaults to DeepSeek; OpenAI-compatible — swap providers via `DSH_SAFE_AI_BASE_URL` / `DSH_SAFE_AI_MODEL`):
 
-- **`dsh-safe explain [--profile <name> | --file <path>]`**: interprets the most recent boot failure by default (stderr is persisted to `$DSH_HOME/dsh-safe/last-failure-<profile>.log` on every failed wrapped boot, for humans too); `--profile` boots that profile live and interprets (60s timeout); `--file`/stdin read any log. Strictly read-only — never touches the patch or ledger.
+- **`dsh-safe explain [--profile <name> | --file <path>] [-- <dsh args…>]`**: interprets the most recent boot failure by default (stderr is persisted to `$DSH_HOME/dsh-safe/last-failure-<profile>.log` on every failed wrapped boot, for humans too); `--profile` boots that profile live and interprets (60s timeout; put dsh boot args after `--`, e.g. `-- --port 3084`); `--file`/stdin read any log. Strictly read-only — never touches the patch or ledger. Unrecognized arguments fail loudly instead of being swallowed.
 - **AI fallback identification** (`DSH_SAFE_AI_RECOVER=1`): when the regex signatures can't identify the broken plugin (e.g. after a dsh upgrade changes formats), the AI picks the culprit from the stderr — **its output must pass the exact same validation pipeline** (match against real patch rows, first-party protection, dry-run preview); unmatched picks are passed through as before. Only invoked on startup failure.
 - Privacy: home paths are redacted to `~` before sending; any AI failure degrades silently.
 
