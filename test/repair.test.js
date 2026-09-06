@@ -192,6 +192,31 @@ test('repair：省略 id 且多条记录 → 列清单让用户挑，不执行',
   }
 })
 
+test('repair：导出不匹配类（插件落后于 dsh API）→ 升级插件尝试适配', async () => {
+  const EXPORT_REASON =
+    "Error: failed to import loader entry badplug (@acme/broken-plugin): The requested module '@deepseek-ai/dsh-settings' does not provide an export named 'getSetting'"
+  const fx = makeFixture(EXPORT_REASON)
+  const calls = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    const code = await cmdRepair(['-y', 'badplug'], {
+      spawn: (file, args) => {
+        calls.push({ file, args })
+        return { status: 0 }
+      },
+      log: () => {},
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    assert.deepEqual(calls[0].args, ['plugin', '--profile', 'web', 'add', '@acme/broken-plugin@latest'])
+    assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
 test('repair：台账里没有该 id → 报错', async () => {
   const fx = makeFixture()
   const lines = []
