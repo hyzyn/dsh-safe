@@ -569,6 +569,30 @@ test('repair：台账无记录但被多 bundle 重复挂载 → 直接去重', a
   }
 })
 
+test('-r --profile X --port N：profile 同时作用于修复与启动', async () => {
+  const fx = makeFixture()
+  const bootCalls = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    const code = await cmdRepairAndBoot(['-y', '--profile', 'web-copy2', '--port', '3088'], {
+      boot: async (args) => {
+        bootCalls.push(args)
+        return 0
+      },
+      spawn: () => ({ status: 0 }),
+      log: () => {},
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    // 启动参数自动补上 --profile
+    assert.deepEqual(bootCalls, [['--profile', 'web-copy2', '--port', '3088']])
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
 test('repair：台账里没有该 id → 报错', async () => {
   const fx = makeFixture()
   const lines = []
