@@ -11,6 +11,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -27,6 +29,21 @@ jobs:
           fi
           npm publish --access public
       - name: Create GitHub release
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes || true
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
+          PREV=$(git describe --tags --abbrev=0 "HEAD^" 2>/dev/null || true)
+          RANGE="${PREV:+${PREV}..}HEAD"
+          {
+            echo "## Highlights"
+            echo
+            git log "$RANGE" --format='- %s' | grep -v '^- chore:' || true
+            echo
+            if [ -n "$PREV" ]; then
+              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV}...${GITHUB_REF_NAME}"
+            fi
+          } > release-notes.md
+          cat release-notes.md
+          gh release create "$GITHUB_REF_NAME" --notes-file release-notes.md \
+            || gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md \
+            || true
