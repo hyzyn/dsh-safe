@@ -6,7 +6,7 @@ import { join } from 'node:path'
 
 process.env.DSH_SAFE_LANG = 'zh' // 本文件的 t() 断言固定中文（测试文件独立进程运行）
 
-const { cmdRepair } = await import('../lib/repair.js')
+const { cmdRepair, cmdRepairAndBoot } = await import('../lib/repair.js')
 const { runWrapped } = await import('../lib/wrap.js')
 const { applyManagedBlock, buildManagedBlock, MANAGED_START } = await import('../lib/patchfile.js')
 
@@ -422,6 +422,124 @@ test('repair：安装路径修复后 → 自动去重多 bundle 冗余挂载（�
     assert.deepEqual(manifest.dsh.profile.bundles, ['@acme/web-ui-all']) // 冗余来源已移除
     assert.ok(lines.some((l) => l.includes('去重完成') && l.includes('@acme/web-ui-all')))
     assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
+test('repair --all：批量修复（跳过不支持的类别）', async () => {
+  const fx = makeFixture()
+  const ledgerPath = join(fx.home, 'dsh-safe', 'quarantine.json')
+  const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'))
+  ledger.profiles.web.push({
+    id: 'codeplug', name: '@acme/code-broken', reason: CODE_REASON, quarantinedAt: '2026-01-02T00:00:00.000Z', file: fx.patchPath,
+  })
+  writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2))
+  const lines = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    let installCalls = 0
+    const code = await cmdRepair(['-y', '--all'], {
+      spawn: () => {
+        installCalls++
+        return { status: 0 }
+      },
+      log: (l) => lines.push(l),
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    assert.equal(installCalls, 1) // 只有 badplug 可修复
+    assert.ok(lines.some((l) => l.includes('将修复 1 条隔离记录: badplug')))
+    assert.ok(lines.some((l) => l.includes('跳过 1 条（不支持自动修复）: codeplug')))
+    assert.ok(lines.some((l) => l.includes('批量修复完成：成功 1 条，失败 0 条')))
+    // badplug 已恢复移出台账；codeplug（不支持）保留
+    const after = JSON.parse(readFileSync(ledgerPath, 'utf8')).profiles?.web ?? []
+    assert.ok(!after.some((e) => e.id === 'badplug'))
+    assert.ok(after.some((e) => e.id === 'codeplug'))
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
+test('repair --all --dry-run：逐条展示方案不执行', async () => {
+  const fx = makeFixture()
+  const lines = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    let installCalls = 0
+    const code = await cmdRepair(['--all', '--dry-run'], {
+      spawn: () => {
+        installCalls++
+        return { status: 0 }
+      },
+      log: (l) => lines.push(l),
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    assert.equal(installCalls, 0)
+    assert.ok(lines.some((l) => l.includes('将修复 1 条隔离记录: badplug')))
+    assert.ok(lines.some((l) => l.includes('dry-run')))
+    assert.ok(readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
+test('repair：--all 与 id 同时使用 → 报错', async () => {
+  const lines = []
+  const code = await cmdRepair(['-y', '--all', 'badplug'], { spawn: () => ({ status: 0 }), log: (l) => lines.push(l), write: () => {} })
+  assert.equal(code, 2)
+  assert.ok(lines.some((l) => l.includes('不能同时使用')))
+})
+
+test('-r web：批量修复后启动（boot 钩子接线）', async () => {
+  const fx = makeDupFixture()
+  const bootCalls = []
+  const lines = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    const code = await cmdRepairAndBoot(['-y', 'web'], {
+      boot: async (args) => {
+        bootCalls.push(args)
+        return 0
+      },
+      spawn: () => ({ status: 0 }),
+      log: (l) => lines.push(l),
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    assert.deepEqual(bootCalls, [['web']])
+    const manifest = JSON.parse(readFileSync(fx.manifestPath, 'utf8'))
+    assert.deepEqual(manifest.dsh.profile.bundles, ['@linxin666/dsh-web-ui-all'])
+    assert.ok(!JSON.parse(readFileSync(fx.ledgerPath, 'utf8')).profiles?.web)
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
+test('-r 无启动参数：只批量修复不启动', async () => {
+  const fx = makeFixture()
+  const lines = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    const code = await cmdRepairAndBoot(['-y'], {
+      boot: async () => {
+        throw new Error('不应启动')
+      },
+      spawn: () => ({ status: 0 }),
+      log: (l) => lines.push(l),
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    assert.ok(!JSON.parse(readFileSync(fx.ledgerPath, 'utf8')).profiles?.web)
   } finally {
     process.env.DSH_HOME = oldHome
     cleanup(fx.home)
