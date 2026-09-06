@@ -384,6 +384,50 @@ test('repair：duplicate 类 --dry-run → 只展示去重方案', async () => {
   }
 })
 
+test('repair：安装路径修复后 → 自动去重多 bundle 冗余挂载（防复发）', async () => {
+  const EXPORT_REASON =
+    "Error: failed to import loader entry badplug (@acme/broken-plugin): The requested module '@deepseek-ai/dsh-settings' does not provide an export named 'getSetting'"
+  const fx = makeFixture(EXPORT_REASON)
+  // 聚合包也挂载同一插件：manifest 声明两个 bundle，各自插 badplug
+  writeFileSync(
+    join(fx.home, 'profiles', 'web', 'package.json'),
+    JSON.stringify(
+      { name: 'dsh-profile-web', private: true, dsh: { profile: { bundles: ['@acme/web-ui-all', '@acme/broken-plugin'] } } },
+      null, 2,
+    ),
+  )
+  for (const b of ['@acme/web-ui-all', '@acme/broken-plugin']) {
+    const dir = join(fx.home, 'profiles', 'web', 'node_modules', b)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: b, dsh: { bundle: { patch: 'cordis.patch.yml' } } }))
+    writeFileSync(join(dir, 'cordis.patch.yml'), "- insert:\n    - id: badplug\n      name: '@acme/broken-plugin'\n")
+  }
+  const manifestPath = join(fx.home, 'profiles', 'web', 'package.json')
+  const lines = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    let installCalls = 0
+    const code = await cmdRepair(['-y', 'badplug'], {
+      spawn: () => {
+        installCalls++
+        return { status: 0 }
+      },
+      log: (l) => lines.push(l),
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    assert.equal(installCalls, 1) // 只安装一次
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    assert.deepEqual(manifest.dsh.profile.bundles, ['@acme/web-ui-all']) // 冗余来源已移除
+    assert.ok(lines.some((l) => l.includes('去重完成') && l.includes('@acme/web-ui-all')))
+    assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
 test('repair：台账里没有该 id → 报错', async () => {
   const fx = makeFixture()
   const lines = []
