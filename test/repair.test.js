@@ -297,6 +297,93 @@ test('wrap：duplicate 失败 → 不做无效隔离，给指引并透传', asyn
   }
 })
 
+/** duplicate 场景：manifest 挂了两个 bundle（web-ui-all 先声明），各自插入同 id。 */
+function makeDupFixture() {
+  const home = mkdtempSync(join(tmpdir(), 'dsh-safe-dedupe-'))
+  const profileDir = join(home, 'profiles', 'web')
+  mkdirSync(profileDir, { recursive: true })
+  writeFileSync(
+    join(profileDir, 'package.json'),
+    JSON.stringify(
+      { name: 'dsh-profile-web', private: true, dsh: { profile: { bundles: ['@linxin666/dsh-web-ui-all', '@linxin666/dsh-tool-describe-image'] } } },
+      null, 2,
+    ),
+  )
+  for (const b of ['@linxin666/dsh-web-ui-all', '@linxin666/dsh-tool-describe-image']) {
+    const dir = join(profileDir, 'node_modules', b)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: b, dsh: { bundle: { patch: 'cordis.patch.yml' } } }))
+    writeFileSync(join(dir, 'cordis.patch.yml'), "- insert:\n    - id: describe-image\n      name: '@linxin666/dsh-tool-describe-image'\n")
+  }
+  const patchPath = join(profileDir, 'cordis.patch.yml')
+  const entry = {
+    id: 'describe-image',
+    name: '@linxin666/dsh-tool-describe-image',
+    reason: 'TypeError: duplicate loader entry id: describe-image',
+    quarantinedAt: '2026-01-01T00:00:00.000Z',
+    file: patchPath,
+  }
+  writeFileSync(patchPath, `- id: webserver\n  config:\n    port: 3080\n`)
+  writeFileSync(patchPath, applyManagedBlock(readFileSync(patchPath, 'utf8'), buildManagedBlock([entry])).text)
+  const ledgerDir = join(home, 'dsh-safe')
+  mkdirSync(ledgerDir, { recursive: true })
+  writeFileSync(join(ledgerDir, 'quarantine.json'), JSON.stringify({ version: 1, profiles: { web: [entry] } }, null, 2))
+  return { home, patchPath, manifestPath: join(profileDir, 'package.json'), ledgerPath: join(ledgerDir, 'quarantine.json') }
+}
+
+test('repair：duplicate 类 → 自动去重（-y 保留先声明来源，不安装）', async () => {
+  const fx = makeDupFixture()
+  const lines = []
+  const written = []
+  let spawnCalled = false
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    const code = await cmdRepair(['-y', 'describe-image'], {
+      spawn: () => {
+        spawnCalled = true
+        return { status: 0 }
+      },
+      log: (l) => lines.push(l),
+      write: (l) => written.push(l),
+    })
+    assert.equal(code, 0, `stderr: ${lines.join('\n')}`)
+    // manifest：后声明的独立包已移除，聚合包保留
+    const manifest = JSON.parse(readFileSync(fx.manifestPath, 'utf8'))
+    assert.deepEqual(manifest.dsh.profile.bundles, ['@linxin666/dsh-web-ui-all'])
+    // 无效禁用行已摘除：托管区块消失、台账清空
+    assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
+    assert.ok(!JSON.parse(readFileSync(fx.ledgerPath, 'utf8')).profiles?.web)
+    assert.ok(written.some((l) => l.includes('已恢复 @linxin666/dsh-tool-describe-image')))
+    assert.ok(lines.some((l) => l.includes('去重完成')))
+    assert.equal(spawnCalled, false) // 去重不需要安装
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
+test('repair：duplicate 类 --dry-run → 只展示去重方案', async () => {
+  const fx = makeDupFixture()
+  const lines = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    const code = await cmdRepair(['--dry-run', 'describe-image'], {
+      spawn: () => ({ status: 0 }),
+      log: (l) => lines.push(l),
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    assert.ok(lines.some((l) => l.includes('保留 @linxin666/dsh-web-ui-all 的挂载')))
+    assert.ok(lines.some((l) => l.includes('dry-run')))
+    const manifest = JSON.parse(readFileSync(fx.manifestPath, 'utf8'))
+    assert.equal(manifest.dsh.profile.bundles.length, 2) // 未改动
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
 test('repair：台账里没有该 id → 报错', async () => {
   const fx = makeFixture()
   const lines = []
