@@ -546,6 +546,29 @@ test('-r 无启动参数：只批量修复不启动', async () => {
   }
 })
 
+test('repair：台账无记录但被多 bundle 重复挂载 → 直接去重', async () => {
+  const fx = makeDupFixture()
+  // 模拟 duplicate 失败未入账（0.12.1 起 duplicate 不产生台账条目）
+  writeFileSync(fx.ledgerPath, JSON.stringify({ version: 1, profiles: {} }, null, 2))
+  const lines = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    const code = await cmdRepair(['-y', 'describe-image', '--profile', 'web'], {
+      spawn: () => ({ status: 0 }),
+      log: (l) => lines.push(l),
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    const manifest = JSON.parse(readFileSync(fx.manifestPath, 'utf8'))
+    assert.deepEqual(manifest.dsh.profile.bundles, ['@linxin666/dsh-web-ui-all'])
+    assert.ok(lines.some((l) => l.includes('去重完成')))
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
 test('repair：台账里没有该 id → 报错', async () => {
   const fx = makeFixture()
   const lines = []
