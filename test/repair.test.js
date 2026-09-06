@@ -249,6 +249,31 @@ test('repair：导出不匹配 + reason 被截断（真实场景）→ 仍可修
   }
 })
 
+test('repair：重复挂载类 → 拒接并给针对性指引', async () => {
+  const DUP_REASON = 'TypeError: duplicate loader entry id: describe-image'
+  const fx = makeFixture(DUP_REASON)
+  const lines = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    let called = false
+    const code = await cmdRepair(['-y', 'badplug'], {
+      spawn: () => {
+        called = true
+        return { status: 0 }
+      },
+      log: (l) => lines.push(l),
+      write: () => {},
+    })
+    assert.equal(code, 1)
+    assert.ok(lines.some((l) => l.includes('重复挂载') && l.includes('bundles')))
+    assert.equal(called, false)
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
 test('repair：台账里没有该 id → 报错', async () => {
   const fx = makeFixture()
   const lines = []

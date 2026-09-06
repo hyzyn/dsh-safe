@@ -90,7 +90,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 
 ## 工作原理
 
-1. **识别失败**：dsh 启动失败时，stderr 里有四类特征（`plugin(s) failed to load: …`、`N entries did not activate` 逐行失败、`failed to apply/import loader entry <id> (<name>)`、外层栈 `…#<entryId>`）。dsh-safe 从中提取坏插件的包名与行 id。
+1. **识别失败**：dsh 启动失败时，stderr 里有五类特征（`plugin(s) failed to load: …`、`N entries did not activate` 逐行失败、`failed to apply/import loader entry <id> (<name>)`、外层栈 `…#<entryId>`、`duplicate loader entry id: <id>` 重复挂载）。dsh-safe 从中提取坏插件的包名与行 id。
 2. **对照真实行**：扫描 profile patch、`$DSH_HOME/cordis.patch.yml`（home 层）与各 bundle 的 patch，得到「行 id ↔ 插件包名」对照表；只禁用真实存在的行，避免误伤。
 3. **写入托管区块**：在对应 patch 文件末尾追加带标记注释的区块（与 `dsh-mcp-config managed` 同款约定），把命中的行置为 `disabled: true`。用户已有内容与注释原样保留；全新 profile 的 `[]` 模板会被正确替换成块序列。
 4. **台账与恢复**：隔离记录存 `$DSH_HOME/dsh-safe/quarantine.json`。插件升级修复后用 `dsh-safe restore --profile web --all` 摘除区块恢复挂载（`patchReload: live` 的 profile 热生效）。

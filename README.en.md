@@ -90,7 +90,7 @@ How upgrading works: `dsh-safe update` auto-detects the dsh package name and ins
 
 ## How It Works
 
-1. **Failure identification**: when dsh fails to start, stderr carries four kinds of signatures (`plugin(s) failed to load: …`, `N entries did not activate` with per-row failures, `failed to apply/import loader entry <id> (<name>)`, and outer stack frames `…#<entryId>`). dsh-safe extracts the broken plugin's package name and row id from them.
+1. **Failure identification**: when dsh fails to start, stderr carries five kinds of signatures (`plugin(s) failed to load: …`, `N entries did not activate` with per-row failures, `failed to apply/import loader entry <id> (<name>)`, outer stack frames `…#<entryId>`, and `duplicate loader entry id: <id>` duplicates). dsh-safe extracts the broken plugin's package name and row id from them.
 2. **Match against real rows**: it scans the profile patch, `$DSH_HOME/cordis.patch.yml` (home layer) and each bundle's patch to build a "row id ↔ plugin package" mapping; only rows that actually exist are disabled, avoiding collateral damage.
 3. **Managed block writing**: it appends a marker-commented managed block at the end of the matching patch file (same convention as `dsh-mcp-config managed`), setting matched rows to `disabled: true`. Existing user content and comments are preserved; a fresh profile's `[]` template is correctly replaced with a block sequence.
 4. **Ledger & restore**: quarantine records live in `$DSH_HOME/dsh-safe/quarantine.json`. Once a plugin upgrade fixes the issue, `dsh-safe restore --profile web --all` removes the managed block and re-mounts the plugin (hot-applied for profiles with `patchReload: live`).

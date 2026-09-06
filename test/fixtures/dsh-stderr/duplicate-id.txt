@@ -1,0 +1,5 @@
+Error: dsh: plugin tree failed to load: failed to apply loader entry include (cordis:include): duplicate loader entry id: describe-image
+TypeError: duplicate loader entry id: describe-image
+    at EntryGroup.update (file:///opt/dsh/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js:91:28)
+    at Include._apply (file:///opt/dsh/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js:240:19)
+    at async boot (file:///opt/dsh/lib/bin.js:130:3)
