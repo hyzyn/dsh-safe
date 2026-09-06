@@ -17,6 +17,13 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$PKG_VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
       - run: npm ci
       - run: npm test
       - name: Publish to npm
@@ -27,7 +34,13 @@ jobs:
             echo "::warning::NPM_TOKEN secret not configured; skipping npm publish (publish manually with npm publish)"
             exit 0
           fi
-          npm publish --access public
+          PRERELEASE=$(node -p "require('./package.json').version.includes('-') ? 'yes' : 'no'")
+          if [ "$PRERELEASE" = "yes" ]; then
+            echo "prerelease: publishing under dist-tag 'next' (stable users' update check reads 'latest' only)"
+            npm publish --access public --tag next
+          else
+            npm publish --access public
+          fi
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,6 +57,9 @@ jobs:
             fi
           } > release-notes.md
           cat release-notes.md
-          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md \
-            || gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md \
+          PRERELEASE=$(node -p "require('./package.json').version.includes('-') ? 'yes' : 'no'")
+          EXTRA=""
+          [ "$PRERELEASE" = "yes" ] && EXTRA="--prerelease"
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" $EXTRA --notes-file release-notes.md \
+            || gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" $EXTRA --notes-file release-notes.md \
             || true

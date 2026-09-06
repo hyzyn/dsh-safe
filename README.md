@@ -142,6 +142,8 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 npm test        # node:test 单元测试 + fake dsh 集成测试
 ```
 
+发布流程（发布门槛、攒批、prerelease）见 [RELEASING.md](./RELEASING.md)。
+
 ## License
 
 [MIT](./LICENSE)

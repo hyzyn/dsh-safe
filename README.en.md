@@ -143,6 +143,8 @@ Enabled by setting `DSH_SAFE_AI_KEY` (defaults to DeepSeek; OpenAI-compatible â€
 npm test        # node:test unit tests + fake-dsh integration tests
 ```
 
+For the release process (gate, batching, prereleases) see [RELEASING.md](./RELEASING.md) (in Chinese).
+
 ## License
 
 [MIT](./LICENSE)
