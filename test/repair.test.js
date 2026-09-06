@@ -137,6 +137,61 @@ test('repair：--dry-run 只展示计划不执行；--to 指定版本', async ()
   }
 })
 
+test('repair：省略 id 且只有一条记录 → 直接修它', async () => {
+  const fx = makeFixture()
+  const calls = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    const code = await cmdRepair(['-y'], {
+      spawn: (file, args) => {
+        calls.push({ file, args })
+        return { status: 0 }
+      },
+      log: () => {},
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    assert.deepEqual(calls[0].args, ['plugin', '--profile', 'web', 'add', '@acme/broken-plugin@latest'])
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
+test('repair：省略 id 且多条记录 → 列清单让用户挑，不执行', async () => {
+  const fx = makeFixture()
+  const other = { id: 'codeplug', name: '@acme/code-broken', reason: CODE_REASON, quarantinedAt: '2026-01-02T00:00:00.000Z', file: fx.patchPath }
+  const ledgerPath = join(fx.home, 'dsh-safe', 'quarantine.json')
+  const ledger = JSON.parse(readFileSync(ledgerPath, 'utf8'))
+  ledger.profiles.web.push(other)
+  writeFileSync(ledgerPath, JSON.stringify(ledger, null, 2))
+  writeFileSync(fx.patchPath, `- id: codeplug\n  name: '@acme/code-broken'\n  disabled: true\n`)
+
+  const lines = []
+  const oldHome = process.env.DSH_HOME
+  process.env.DSH_HOME = fx.home
+  try {
+    let called = false
+    const code = await cmdRepair([], {
+      spawn: () => {
+        called = true
+        return { status: 0 }
+      },
+      log: (l) => lines.push(l),
+      write: () => {},
+    })
+    assert.equal(code, 0)
+    assert.ok(lines.some((l) => l.includes('共 2 条隔离记录')))
+    assert.ok(lines.some((l) => l.includes('- badplug（@acme/broken-plugin）')))
+    assert.ok(lines.some((l) => l.includes('- codeplug（@acme/code-broken）（不支持自动修复）')))
+    assert.equal(called, false)
+  } finally {
+    process.env.DSH_HOME = oldHome
+    cleanup(fx.home)
+  }
+})
+
 test('repair：台账里没有该 id → 报错', async () => {
   const fx = makeFixture()
   const lines = []

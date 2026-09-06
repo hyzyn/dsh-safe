@@ -48,7 +48,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | `dsh-safe doctor` | environment check: versions, DSH_HOME, profiles, ledger, patch health |
 | `dsh-safe restore [--profile <name>] (--id <id> \| --all) [--dry-run]` | re-enable auto-disabled plugins (omit `--profile` to cover every profile in the ledger) |
 | `dsh-safe explain [--file <path>]` | interpret a failed-boot stderr with AI (read-only, needs `DSH_SAFE_AI_KEY`) |
-| `dsh-safe repair <id> [--profile <name>] [--to <version>] [-y] [--dry-run]` | reinstall/upgrade a quarantined plugin and auto-restore it (module-resolution failures only; installs via `dsh plugin`'s pnpm channel) |
+| `dsh-safe repair [id] [--profile <name>] [--to <version>] [-y] [--dry-run]` | reinstall/upgrade a quarantined plugin and auto-restore it (module-resolution failures only; installs via `dsh plugin`'s pnpm channel) |
 | `dsh-safe help` (`-h` / `--help`) | show help |
 | `dsh-safe --version` (`-V`) | show version |
 
