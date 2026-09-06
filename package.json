@@ -1,6 +1,6 @@
 {
   "name": "@hyzyn/dsh-safe",
-  "version": "0.13.2",
+  "version": "0.14.1",
   "description": "dsh 启动保险丝：社区插件不兼容导致 dsh 启动失败时，自动禁用坏插件并重试",
   "type": "module",
   "license": "MIT",
