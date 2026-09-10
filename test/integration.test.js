@@ -194,6 +194,29 @@ test('集成：官方插件被 profile 覆盖行（无 name）遮蔽 → 仍按�
   }
 })
 
+test('集成：包名只存在于报错文本里时第一方保护仍生效（真机 webserver 场景）', () => {
+  const fx = makeFixture()
+  try {
+    // 真机复刻：profile 的 webserver 覆盖行只写 config，且没有任何 bundle / home 层
+    // 行声明该 id 的 name——包名只出现在 dsh 报错里。旧行为按 id 命中后 name=null，
+    // 第一方保护（@deepseek-ai/*）被绕过，官方插件被误禁（台账记成 name: null）。
+    makeFakeDsh(fx.home, [
+      {
+        code: 1,
+        stderr: 'Error: failed to apply loader entry webserver (@deepseek-ai/dsh-host-webserver): some boom\n',
+      },
+    ])
+    const result = runSafe(fx.home, ['web'])
+    assert.equal(result.status, 1, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('跳过第一方插件 @deepseek-ai/dsh-host-webserver'))
+    assert.ok(!result.stderr.includes('已禁用'))
+    assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
+    assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
 test('集成：识别不出的失败不写任何东西，不重试', () => {
   const fx = makeFixture()
   try {
