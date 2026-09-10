@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -195,6 +195,53 @@ test('集成：官方插件被 profile 覆盖行（无 name）遮蔽 → 仍按�
     assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
   } finally {
     cleanup(fx.home)
+  }
+})
+
+test('集成：官方 bundle 装在 dsh 安装目录下时也纳入对照表（收集缺口）', () => {
+  const home = mkdtempSync(join(tmpdir(), 'dsh-safe-dshinstall-'))
+  try {
+    const profileDir = join(home, 'profiles', 'web')
+    mkdirSync(profileDir, { recursive: true })
+    writeFileSync(
+      join(profileDir, 'package.json'),
+      JSON.stringify({ name: 'dsh-profile-web', private: true, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } } }),
+    )
+    const patchPath = join(profileDir, 'cordis.patch.yml')
+    writeFileSync(patchPath, "- id: gateway\n  config:\n    host: '0.0.0.0'\n")
+    // 官方 bundle 只在 dsh 自己的安装目录下（profile/node_modules 里没有），且它声明的
+    // 行没有 name：能认定 gateway 是核心依赖，只能靠收进来的这条 internal 行
+    const dshPkgDir = join(home, 'global', 'node_modules', '@deepseek-ai', 'dsh')
+    const officialBundleDir = join(dshPkgDir, 'node_modules', '@deepseek-ai', 'dsh-base')
+    mkdirSync(join(dshPkgDir, 'lib'), { recursive: true })
+    mkdirSync(officialBundleDir, { recursive: true })
+    writeFileSync(join(dshPkgDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.1.2-rc.1' }))
+    const dshBin = join(dshPkgDir, 'lib', 'bin.js')
+    writeFileSync(
+      dshBin,
+      `#!/usr/bin/env node
+process.stderr.write('Error: dsh: plugin tree failed to load: loader fibers failed\\n')
+process.stderr.write('    at file:///Users/me/.dsh/profiles/web/#gateway\\n')
+process.exit(1)
+`,
+    )
+    chmodSync(dshBin, 0o755)
+    mkdirSync(join(home, 'bin'), { recursive: true })
+    symlinkSync(dshBin, join(home, 'bin', 'dsh'))
+    writeFileSync(
+      join(officialBundleDir, 'package.json'),
+      JSON.stringify({ name: '@deepseek-ai/dsh-base', dsh: { bundle: { patch: 'cordis.patch.yml' } } }),
+    )
+    writeFileSync(join(officialBundleDir, 'cordis.patch.yml'), '- insert:\n    - id: gateway\n      config: {}\n')
+
+    const result = runSafe(home, ['web'])
+    assert.equal(result.status, 1, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('跳过核心依赖 gateway'))
+    assert.ok(!result.stderr.includes('已禁用'))
+    assert.ok(!readFileSync(patchPath, 'utf8').includes(MANAGED_START))
+    assert.ok(!existsSync(join(home, 'dsh-safe', 'quarantine.json')))
+  } finally {
+    cleanup(home)
   }
 })
 
