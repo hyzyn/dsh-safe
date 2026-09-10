@@ -99,7 +99,7 @@ test('AI 兜底：第一方保护同样约束 AI 结果', async () => {
       log: (line) => lines.push(line),
     })
     assert.equal(code, 1)
-    assert.ok(lines.some((l) => l.includes('跳过第一方插件 @deepseek-ai/dsh-web-app')))
+    assert.ok(lines.some((l) => l.includes('跳过核心依赖 webapp')))
     assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
   } finally {
     process.env.DSH_HOME = oldHome

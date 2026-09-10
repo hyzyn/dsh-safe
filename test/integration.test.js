@@ -99,7 +99,7 @@ const cleanup = (home) => rmSync(home, { recursive: true, force: true })
 
 /**
  * 官方插件被 profile 覆盖行遮蔽的场景：bundle 层行带官方包名，profile 层覆盖行只写
- * config（无 name）。用 open-in-app 而非 webserver——后者已被"保留条目"接管（永不自动
+ * config（无 name）。用 open-in-app 而非 webserver——后者已被"核心依赖"接管（永不自动
  * 禁用，见 dedupe.js），拿它测不到第一方名字回退这条链路。
  */
 function makeOverriddenOfficialFixture() {
@@ -159,13 +159,13 @@ test('集成：启动失败 → 自动隔离两个坏插件 → 重试成功', (
   }
 })
 
-test('集成：第一方插件默认跳过，原样透传退出码', () => {
+test('集成：核心依赖（官方插件）默认跳过，原样透传退出码', () => {
   const fx = makeFixture()
   try {
     makeFakeDsh(fx.home, [{ code: 1, stderr: FAIL_FIRST_PARTY_STDERR }])
     const result = runSafe(fx.home, ['web'])
     assert.equal(result.status, 1)
-    assert.ok(result.stderr.includes('跳过第一方插件 @deepseek-ai/dsh-web-app'))
+    assert.ok(result.stderr.includes('跳过核心依赖 webapp'))
     const patch = readFileSync(fx.patchPath, 'utf8')
     assert.ok(!patch.includes(MANAGED_START))
     assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
@@ -189,7 +189,7 @@ test('集成：官方插件被 profile 覆盖行（无 name）遮蔽 → 仍按�
     ])
     const result = runSafe(fx.home, ['web'])
     assert.equal(result.status, 1, `stderr: ${result.stderr}`)
-    assert.ok(result.stderr.includes('跳过第一方插件 @deepseek-ai/dsh-host-open-in-app'))
+    assert.ok(result.stderr.includes('跳过核心依赖 open-in-app'))
     assert.ok(!result.stderr.includes('已禁用'))
     assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
     assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
@@ -198,17 +198,81 @@ test('集成：官方插件被 profile 覆盖行（无 name）遮蔽 → 仍按�
   }
 })
 
-test('集成：webserver 是保留条目——报错把包名说成第三方也禁不掉', () => {
+test('集成：官方 bundle 挂载的行即使没有 name 也不被禁用（结构信号）', () => {
+  // 该 id 由官方 bundle 挂载，但任何层都没写 name，报错里也只有 entry id：
+  // 只有"来源 bundle 是官方"这条不依赖名字解析的信号能兜住它
+  const home = mkdtempSync(join(tmpdir(), 'dsh-safe-official-'))
+  try {
+    const profileDir = join(home, 'profiles', 'web')
+    const bundleDir = join(profileDir, 'node_modules', '@deepseek-ai', 'dsh-base')
+    mkdirSync(bundleDir, { recursive: true })
+    mkdirSync(join(home, 'bin'), { recursive: true })
+    writeFileSync(
+      join(profileDir, 'package.json'),
+      JSON.stringify({ name: 'dsh-profile-web', private: true, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } } }),
+    )
+    const patchPath = join(profileDir, 'cordis.patch.yml')
+    writeFileSync(patchPath, "- id: gateway\n  config:\n    host: '0.0.0.0'\n")
+    writeFileSync(
+      join(bundleDir, 'package.json'),
+      JSON.stringify({ name: '@deepseek-ai/dsh-base', dsh: { bundle: { patch: 'cordis.patch.yml' } } }),
+    )
+    writeFileSync(join(bundleDir, 'cordis.patch.yml'), '- insert:\n    - id: gateway\n      config: {}\n')
+    makeFakeDsh(home, [
+      {
+        code: 1,
+        stderr:
+          'Error: dsh: plugin tree failed to load: loader fibers failed\n' +
+          '    at file:///Users/me/.dsh/profiles/web/#gateway\n',
+      },
+    ])
+    const result = runSafe(home, ['web'])
+    assert.equal(result.status, 1, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('跳过核心依赖 gateway'))
+    assert.ok(!result.stderr.includes('已禁用'))
+    assert.ok(!readFileSync(patchPath, 'utf8').includes(MANAGED_START))
+    assert.ok(!existsSync(join(home, 'dsh-safe', 'quarantine.json')))
+  } finally {
+    cleanup(home)
+  }
+})
+
+test('集成：无法确定包名的行按核心依赖对待，不隔离（fail closed）', () => {
   const fx = makeFixture()
   try {
-    // 对抗场景：让解析出的包名是明确的第三方（第一方保护在这里帮不上忙），
-    // 只有"保留条目"这层结构性能兜住 webserver
+    // 非官方来源、无 name、报错里也只有 entry id：无法证明它是普通第三方，
+    // 就有可能是 dsh 的核心依赖——隔离是持久写入，宁可漏隔离也不误伤
+    writeFileSync(fx.patchPath, `${readFileSync(fx.patchPath, 'utf8')}- id: mystery\n  config: {}\n`)
+    makeFakeDsh(fx.home, [
+      {
+        code: 1,
+        stderr:
+          'Error: dsh: plugin tree failed to load: loader fibers failed\n' +
+          '    at file:///Users/me/.dsh/profiles/web/#mystery\n',
+      },
+    ])
+    const result = runSafe(fx.home, ['web'])
+    assert.equal(result.status, 1, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('无法确定它属于哪个包'))
+    assert.ok(!result.stderr.includes('已禁用'))
+    assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
+    assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('集成：webserver 是核心依赖——报错把包名说成第三方也禁不掉', () => {
+  const fx = makeFixture()
+  try {
+    // 对抗场景：让解析出的包名是明确的第三方（名字信号在这里帮不上忙），
+    // 只有"核心依赖"这层结构性能兜住 webserver
     makeFakeDsh(fx.home, [
       { code: 1, stderr: 'Error: failed to apply loader entry webserver (@acme/evil-plugin): boom\n' },
     ])
     const result = runSafe(fx.home, ['web'])
     assert.equal(result.status, 1, `stderr: ${result.stderr}`)
-    assert.ok(result.stderr.includes('保留条目 webserver 永不自动禁用'))
+    assert.ok(result.stderr.includes('跳过核心依赖 webserver'))
     assert.ok(!result.stderr.includes('已禁用'))
     assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
     assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
@@ -217,7 +281,7 @@ test('集成：webserver 是保留条目——报错把包名说成第三方也�
   }
 })
 
-test('集成：--allow-first-party 也放不开保留条目 webserver', () => {
+test('集成：--allow-first-party 也放不开核心依赖 webserver', () => {
   const fx = makeFixture()
   try {
     makeFakeDsh(fx.home, [
@@ -225,7 +289,7 @@ test('集成：--allow-first-party 也放不开保留条目 webserver', () => {
     ])
     const result = runSafe(fx.home, ['--allow-first-party', 'web'])
     assert.equal(result.status, 1, `stderr: ${result.stderr}`)
-    assert.ok(result.stderr.includes('保留条目 webserver 永不自动禁用'))
+    assert.ok(result.stderr.includes('跳过核心依赖 webserver'))
     assert.ok(!result.stderr.includes('已禁用'))
     assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
   } finally {
@@ -233,7 +297,7 @@ test('集成：--allow-first-party 也放不开保留条目 webserver', () => {
   }
 })
 
-test('集成：加载器机制层（include / cordis:*）是保留条目，禁不掉', () => {
+test('集成：加载器机制层（include / cordis:*）是核心依赖，禁不掉', () => {
   const fx = makeFixture()
   try {
     // 机制层行：树里真实存在该 id，但禁用它会拆掉 bundle 的挂载链路本身
@@ -243,7 +307,7 @@ test('集成：加载器机制层（include / cordis:*）是保留条目，禁�
     ])
     const result = runSafe(fx.home, ['web'])
     assert.equal(result.status, 1, `stderr: ${result.stderr}`)
-    assert.ok(result.stderr.includes('保留条目 include 永不自动禁用'))
+    assert.ok(result.stderr.includes('跳过核心依赖 include'))
     assert.ok(!result.stderr.includes('已禁用'))
     assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
   } finally {
@@ -257,7 +321,7 @@ test('集成：包名只存在于报错文本里时第一方保护仍生效（�
     // 真机复刻：覆盖行只写 config，且没有任何 bundle / home 层行声明该 id 的 name
     // ——包名只出现在 dsh 报错里。旧行为按 id 命中后 name=null，第一方保护
     // （@deepseek-ai/*）被绕过，官方插件被误禁（台账记成 name: null）。
-    // 用 open-in-app 而非 webserver：后者已被保留条目接管，测不到这条链路。
+    // 用 open-in-app 而非 webserver：后者已被核心依赖接管，测不到这条链路。
     writeFileSync(
       fx.patchPath,
       `${readFileSync(fx.patchPath, 'utf8')}- id: open-in-app\n  config:\n    enabled: true\n`,
@@ -270,7 +334,7 @@ test('集成：包名只存在于报错文本里时第一方保护仍生效（�
     ])
     const result = runSafe(fx.home, ['web'])
     assert.equal(result.status, 1, `stderr: ${result.stderr}`)
-    assert.ok(result.stderr.includes('跳过第一方插件 @deepseek-ai/dsh-host-open-in-app'))
+    assert.ok(result.stderr.includes('跳过核心依赖 open-in-app'))
     assert.ok(!result.stderr.includes('已禁用'))
     assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
     assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
