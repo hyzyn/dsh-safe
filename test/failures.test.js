@@ -60,6 +60,39 @@ test('无关 stderr 不产生命中', () => {
   assert.deepEqual(entryIds, [])
 })
 
+test('环境类失败（端口被占）只进 environmental，不进隔离候选', () => {
+  const stderr = [
+    'Error: dsh: plugin tree failed to load: loader entries failed to apply',
+    '[cause]: Error: failed to apply loader entry webserver (@deepseek-ai/dsh-host-webserver): listen EADDRINUSE: address already in use 0.0.0.0:3080',
+  ].join('\n')
+  const { names, entryIds, environmental } = parseFailureReport(stderr)
+  // 端口被占不是插件的错：禁用它既修不好问题，又会连带误伤依赖它的插件
+  assert.deepEqual(names, [])
+  assert.deepEqual(entryIds, [])
+  assert.ok(environmental.some(([label, line]) => label === 'webserver' && line.includes('EADDRINUSE')))
+})
+
+test('"did not activate" 块里的环境类失败同样不进候选，真失败不受影响', () => {
+  const stderr = [
+    'Error: dsh: plugin tree failed to load: dsh: 2 entries did not activate',
+    '@acme/net-plugin: Error: connect ECONNREFUSED 127.0.0.1:6379',
+    '@acme/truly-broken: TypeError: ctx.foo is not a function',
+  ].join('\n')
+  const { names, entryIds, environmental } = parseFailureReport(stderr)
+  assert.ok(!names.some(([n]) => n === '@acme/net-plugin'))
+  assert.ok(names.some(([n]) => n === '@acme/truly-broken'))
+  assert.ok(environmental.some(([label]) => label === '@acme/net-plugin'))
+  assert.deepEqual(entryIds, [])
+})
+
+test('非 errno 的 apply 失败仍照常进候选（环境过滤不放宽）', () => {
+  const stderr = 'Error: failed to apply loader entry a1b2c3d4 (@acme/x): boom\n'
+  const { names, entryIds, environmental } = parseFailureReport(stderr)
+  assert.ok(names.some(([n]) => n === '@acme/x'))
+  assert.ok(entryIds.some(([id]) => id === 'a1b2c3d4'))
+  assert.deepEqual(environmental, [])
+})
+
 test('summarizeLine 压缩空白并截断', () => {
   const line = '  a   b\n c  '.repeat(40)
   const s = summarizeLine(line, 50)
