@@ -128,7 +128,9 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 
 ## 安全边界
 
-- **第一方保护**：`@deepseek-ai/*` 的行默认跳过（禁用 `dsh-web-app` 这类插件会让 dsh 失去核心能力），需要 `--allow-first-party` 才会动；duplicate 自动去重同受保护——缺省保留官方来源，移除官方 bundle 需显式允许或交互确认，避免连带卸载 webserver 等官方行。
+- **第一方保护**：`@deepseek-ai/*` 的行默认跳过（禁用 `dsh-web-app` 这类插件会让 dsh 失去核心能力），需要 `--allow-first-party` 才会动；duplicate 自动去重同受保护——缺省保留官方来源，移除官方 bundle 需显式允许或交互确认，避免连带卸载 webserver 等官方行。判断用的包名会依次从 patch 行、同 id 的其它层、**报错文本本身**回退取得，所以 profile 覆盖行不重述 name（如 webserver 的 host/port 覆盖）也不会让保护失效。
+- **保留条目永不自动禁用**：`webserver`（web UI 宿主入口）与加载器机制层（`include` / `cordis:*`）**不参与自动隔离**。禁掉它们会让 UI 或 patch 合成链路静默失效，而失败原因往往在环境侧（例如端口已被另一个 dsh 实例占用）。这一层不依赖包名解析，因此不会被"名字取不到"绕过；`--allow-first-party` 对它无效，确实需要禁用请手动编辑 patch。
+- **环境类失败不隔离**：stderr 里出现 `EADDRINUSE` / `EACCES` / `ECONNREFUSED` 等 errno 时，判定失败不能归因到插件，一律不写任何文件并原样透传退出码。
 - **只动启动期失败**：模块解析失败 / `apply` 抛错 / 等不到注入服务。运行期的未捕获异常仍由 dsh 自身的 fail-loud 策略处理，不属于启动隔离范围。
 - **可审计**：每次写入都带原因与时间戳；`--dry-run` 可以先看会禁用谁。
 - **原样透传**：识别不出坏插件、超过重试上限、`dsh plugin`（pnpm 转发）等情况，退出码原样透传，不做任何修改。

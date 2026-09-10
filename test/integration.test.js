@@ -97,8 +97,12 @@ function runSafe(home, args, extraEnv = {}) {
 
 const cleanup = (home) => rmSync(home, { recursive: true, force: true })
 
-/** 官方 webserver 场景：bundle 层行带官方包名，profile 层覆盖行只写 config（无 name）。 */
-function makeWebserverFixture() {
+/**
+ * 官方插件被 profile 覆盖行遮蔽的场景：bundle 层行带官方包名，profile 层覆盖行只写
+ * config（无 name）。用 open-in-app 而非 webserver——后者已被"保留条目"接管（永不自动
+ * 禁用，见 dedupe.js），拿它测不到第一方名字回退这条链路。
+ */
+function makeOverriddenOfficialFixture() {
   const home = mkdtempSync(join(tmpdir(), 'dsh-safe-webserver-'))
   const profileDir = join(home, 'profiles', 'web')
   const bundleDir = join(profileDir, 'node_modules', '@deepseek-ai', 'dsh-web-app')
@@ -112,15 +116,15 @@ function makeWebserverFixture() {
     ),
   )
   const patchPath = join(profileDir, 'cordis.patch.yml')
-  // 真实场景（绑 host/port 的官方推荐配置）：覆盖行不重述 name，包名只存在于 bundle 层行
-  writeFileSync(patchPath, `- id: webserver\n  config:\n    host: '0.0.0.0'\n    port: 3080\n`)
+  // 真实场景（profile 层只写覆盖 config）：覆盖行不重述 name，包名只存在于 bundle 层行
+  writeFileSync(patchPath, `- id: open-in-app\n  config:\n    enabled: true\n`)
   writeFileSync(
     join(bundleDir, 'package.json'),
     JSON.stringify({ name: '@deepseek-ai/dsh-web-app', dsh: { bundle: { patch: 'cordis.patch.yml' } } }),
   )
   writeFileSync(
     join(bundleDir, 'cordis.patch.yml'),
-    `- insert:\n    - id: webserver\n      name: '@deepseek-ai/dsh-host-webserver'\n      inject: [webStartup]\n`,
+    `- insert:\n    - id: open-in-app\n      name: '@deepseek-ai/dsh-host-open-in-app'\n`,
   )
   const stateFile = join(home, 'fake-dsh-attempts')
   return { home, patchPath, stateFile }
@@ -171,7 +175,7 @@ test('集成：第一方插件默认跳过，原样透传退出码', () => {
 })
 
 test('集成：官方插件被 profile 覆盖行（无 name）遮蔽 → 仍按包名识别第一方，不隔离', () => {
-  const fx = makeWebserverFixture()
+  const fx = makeOverriddenOfficialFixture()
   try {
     // 报错按 entry id 命中（reEntry / 外层栈），同 id 的 profile 覆盖行没有 name：
     // 包名必须从 bundle 层行回退取得，第一方保护才不会被覆盖行绕过
@@ -179,13 +183,13 @@ test('集成：官方插件被 profile 覆盖行（无 name）遮蔽 → 仍按�
       {
         code: 1,
         stderr:
-          "Error: failed to import loader entry webserver (@deepseek-ai/dsh-host-webserver): Cannot find package '@deepseek-ai/dsh-host-webserver' imported from /Users/me/.dsh/profiles/web/cordis.patch.yml\n" +
+          "Error: failed to import loader entry open-in-app (@deepseek-ai/dsh-host-open-in-app): Cannot find package '@deepseek-ai/dsh-host-open-in-app' imported from /Users/me/.dsh/profiles/web/cordis.patch.yml\n" +
           '    at Object.import (file:///opt/dsh/lib/loader.js:244:9)\n',
       },
     ])
     const result = runSafe(fx.home, ['web'])
     assert.equal(result.status, 1, `stderr: ${result.stderr}`)
-    assert.ok(result.stderr.includes('跳过第一方插件 @deepseek-ai/dsh-host-webserver'))
+    assert.ok(result.stderr.includes('跳过第一方插件 @deepseek-ai/dsh-host-open-in-app'))
     assert.ok(!result.stderr.includes('已禁用'))
     assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
     assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
@@ -194,21 +198,79 @@ test('集成：官方插件被 profile 覆盖行（无 name）遮蔽 → 仍按�
   }
 })
 
-test('集成：包名只存在于报错文本里时第一方保护仍生效（真机 webserver 场景）', () => {
+test('集成：webserver 是保留条目——报错把包名说成第三方也禁不掉', () => {
   const fx = makeFixture()
   try {
-    // 真机复刻：profile 的 webserver 覆盖行只写 config，且没有任何 bundle / home 层
-    // 行声明该 id 的 name——包名只出现在 dsh 报错里。旧行为按 id 命中后 name=null，
-    // 第一方保护（@deepseek-ai/*）被绕过，官方插件被误禁（台账记成 name: null）。
+    // 对抗场景：让解析出的包名是明确的第三方（第一方保护在这里帮不上忙），
+    // 只有"保留条目"这层结构性能兜住 webserver
+    makeFakeDsh(fx.home, [
+      { code: 1, stderr: 'Error: failed to apply loader entry webserver (@acme/evil-plugin): boom\n' },
+    ])
+    const result = runSafe(fx.home, ['web'])
+    assert.equal(result.status, 1, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('保留条目 webserver 永不自动禁用'))
+    assert.ok(!result.stderr.includes('已禁用'))
+    assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
+    assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('集成：--allow-first-party 也放不开保留条目 webserver', () => {
+  const fx = makeFixture()
+  try {
+    makeFakeDsh(fx.home, [
+      { code: 1, stderr: 'Error: failed to apply loader entry webserver (@deepseek-ai/dsh-host-webserver): boom\n' },
+    ])
+    const result = runSafe(fx.home, ['--allow-first-party', 'web'])
+    assert.equal(result.status, 1, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('保留条目 webserver 永不自动禁用'))
+    assert.ok(!result.stderr.includes('已禁用'))
+    assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('集成：加载器机制层（include / cordis:*）是保留条目，禁不掉', () => {
+  const fx = makeFixture()
+  try {
+    // 机制层行：树里真实存在该 id，但禁用它会拆掉 bundle 的挂载链路本身
+    writeFileSync(fx.patchPath, `${readFileSync(fx.patchPath, 'utf8')}- id: include\n  config: {}\n`)
+    makeFakeDsh(fx.home, [
+      { code: 1, stderr: 'Error: failed to apply loader entry include (cordis:include): boom\n' },
+    ])
+    const result = runSafe(fx.home, ['web'])
+    assert.equal(result.status, 1, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('保留条目 include 永不自动禁用'))
+    assert.ok(!result.stderr.includes('已禁用'))
+    assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('集成：包名只存在于报错文本里时第一方保护仍生效（真机场景）', () => {
+  const fx = makeFixture()
+  try {
+    // 真机复刻：覆盖行只写 config，且没有任何 bundle / home 层行声明该 id 的 name
+    // ——包名只出现在 dsh 报错里。旧行为按 id 命中后 name=null，第一方保护
+    // （@deepseek-ai/*）被绕过，官方插件被误禁（台账记成 name: null）。
+    // 用 open-in-app 而非 webserver：后者已被保留条目接管，测不到这条链路。
+    writeFileSync(
+      fx.patchPath,
+      `${readFileSync(fx.patchPath, 'utf8')}- id: open-in-app\n  config:\n    enabled: true\n`,
+    )
     makeFakeDsh(fx.home, [
       {
         code: 1,
-        stderr: 'Error: failed to apply loader entry webserver (@deepseek-ai/dsh-host-webserver): some boom\n',
+        stderr: 'Error: failed to apply loader entry open-in-app (@deepseek-ai/dsh-host-open-in-app): some boom\n',
       },
     ])
     const result = runSafe(fx.home, ['web'])
     assert.equal(result.status, 1, `stderr: ${result.stderr}`)
-    assert.ok(result.stderr.includes('跳过第一方插件 @deepseek-ai/dsh-host-webserver'))
+    assert.ok(result.stderr.includes('跳过第一方插件 @deepseek-ai/dsh-host-open-in-app'))
     assert.ok(!result.stderr.includes('已禁用'))
     assert.ok(!readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
     assert.ok(!existsSync(join(fx.home, 'dsh-safe', 'quarantine.json')))
