@@ -39,8 +39,9 @@ process.exit(0)
   const binDir = join(home, 'bin')
   symlinkSync(dshBin, join(binDir, 'dsh'))
 
-  // fake npm：dsh 包的 view 返回 FAKE_NPM_LATEST；自身包返回 FAKE_NPM_SELF_LATEST
-  //（缺省读真实 package.json → 自身视为最新）；install 只改写 fake dsh 的版本
+  // fake npm：view 返回 dist-tags JSON——latest 取 FAKE_NPM_LATEST / FAKE_NPM_SELF_LATEST
+  //（自身包缺省读真实 package.json → 视为最新），next 取 FAKE_NPM_NEXT（缺省没有 next 键，
+  // 即无通道差距）；install 只改写 fake dsh 的版本
   const npmBin = join(binDir, 'npm')
   writeFileSync(
     npmBin,
@@ -50,10 +51,17 @@ const args = process.argv.slice(2)
 appendFileSync(process.env.FAKE_NPM_STATE, JSON.stringify(args) + '\\n')
 if (args[0] === 'view') {
   if (process.env.FAKE_NPM_FAIL_VIEW === '1') process.exit(1)
-  if (args[1] === '${PKG}') {
-    console.log(process.env.FAKE_NPM_LATEST ?? '${NEW_VERSION}')
+  const isDsh = args[1] === '${PKG}'
+  const latest = isDsh
+    ? (process.env.FAKE_NPM_LATEST ?? '${NEW_VERSION}')
+    : (process.env.FAKE_NPM_SELF_LATEST ?? JSON.parse(readFileSync(process.env.FAKE_SELF_PKG_JSON, 'utf8')).version)
+  if (args[2] === 'dist-tags') {
+    const tags = { latest }
+    const next = isDsh ? process.env.FAKE_NPM_NEXT : process.env.FAKE_NPM_SELF_NEXT
+    if (next) tags.next = next
+    console.log(JSON.stringify(tags))
   } else {
-    console.log(process.env.FAKE_NPM_SELF_LATEST ?? JSON.parse(readFileSync(process.env.FAKE_SELF_PKG_JSON, 'utf8')).version)
+    console.log(latest)
   }
   process.exit(0)
 }
@@ -145,10 +153,10 @@ test('update：升级 → 自动恢复隔离 → 提示回滚', async () => {
     // 计划与安装命令
     assert.ok(result.stderr.includes(`dsh ${PKG} ${OLD_VERSION} → ${NEW_VERSION} (npm)`))
     assert.ok(result.stderr.includes(`npm install -g ${PKG}@${NEW_VERSION}`))
-    // fake npm 确实被调用：view dsh → view 自身 → install
+    // fake npm 确实被调用：view dsh 的 dist-tags → view 自身的 dist-tags → install
     const calls = readFileSync(join(fx.home, 'npm-calls'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
-    assert.deepEqual(calls[0], ['view', PKG, 'version'])
-    assert.deepEqual(calls[1], ['view', '@hyzyn/dsh-safe', 'version'])
+    assert.deepEqual(calls[0], ['view', PKG, 'dist-tags', '--json'])
+    assert.deepEqual(calls[1], ['view', '@hyzyn/dsh-safe', 'dist-tags', '--json'])
     assert.deepEqual(calls[2], ['install', '-g', `${PKG}@${NEW_VERSION}`])
     // fake dsh 版本已被"升级"
     assert.equal(JSON.parse(readFileSync(fx.pkgJsonPath, 'utf8')).version, NEW_VERSION)
@@ -213,7 +221,7 @@ test('update：--self 只更新 dsh-safe 自身，不动 dsh 与隔离状态', a
     const result = runUpdate(fx, ['-y', '--self'], { FAKE_NPM_SELF_LATEST: '9.9.9' })
     assert.equal(result.status, 0, `stderr: ${result.stderr}`)
     const calls = readCalls(fx, 'npm-calls')
-    assert.deepEqual(calls[0], ['view', '@hyzyn/dsh-safe', 'version']) // --self 不查 dsh
+    assert.deepEqual(calls[0], ['view', '@hyzyn/dsh-safe', 'dist-tags', '--json']) // --self 不查 dsh
     assert.deepEqual(calls[1], ['install', '-g', '@hyzyn/dsh-safe@9.9.9'])
     assert.ok(result.stderr.includes(`dsh-safe 已更新: ${SELF_VERSION} → 9.9.9`))
     assert.ok(result.stderr.includes('下次启动生效'))
@@ -332,6 +340,129 @@ test('-u web：非交互且有更新 → 拒绝不启动', async () => {
     assert.ok(result.stderr.includes('不是交互终端'))
     assert.deepEqual(readCalls(fx, 'dsh-calls'), [])
     assert.ok(!readCalls(fx, 'npm-calls').some((c) => c[0] === 'install'))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('update：latest 已最新但 next 有更新 → 提示通道差距且不自动安装', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runUpdate(fx, ['-y', '--no-verify'], { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_NEXT: NEW_VERSION })
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('无需更新'))
+    assert.ok(result.stderr.includes(`next 通道已有 ${NEW_VERSION}`))
+    assert.ok(result.stderr.includes(`当前 latest 通道 ${OLD_VERSION}`))
+    assert.ok(result.stderr.includes('dsh-safe update --to next'))
+    assert.ok(!readCalls(fx, 'npm-calls').some((c) => c[0] === 'install')) // 只提示，绝不上未发布通道
+    assert.equal(JSON.parse(readFileSync(fx.pkgJsonPath, 'utf8')).version, OLD_VERSION)
+    assert.ok(readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('update：将装到的版本已追平 next → 不提示通道差距', async () => {
+  const fx = makeFixture()
+  try {
+    // latest 前移到了与 next 相同的新版：正在升级，提示"next 有更新的"会是误导
+    const result = runUpdate(fx, ['-y', '--no-verify'], { FAKE_NPM_LATEST: NEW_VERSION, FAKE_NPM_NEXT: NEW_VERSION })
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes(`dsh ${PKG} ${OLD_VERSION} → ${NEW_VERSION}`))
+    assert.ok(!result.stderr.includes('next 通道已有'))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('-u web：通道提示每天最多一次，且与新版提示共用状态文件互不覆盖', async () => {
+  const fx = makeFixture()
+  try {
+    const env = { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_NEXT: NEW_VERSION, DSH_SAFE_NO_UPDATE_CHECK: '' }
+    const first = runU(fx, ['-u', 'web'], env)
+    assert.equal(first.status, 0, `stderr: ${first.stderr}`)
+    assert.ok(first.stderr.includes(`next 通道已有 ${NEW_VERSION}`))
+    assert.ok(first.stdout.includes('dsh booted'))
+    // 通道提示先写 channelNotifyAt，随后的包装启动写 lastCheckAt——两个键都要在
+    const state = JSON.parse(readFileSync(join(fx.home, 'dsh-safe', 'update-check.json'), 'utf8'))
+    assert.ok(state.channelNotifyAt, 'channelNotifyAt 应已写入')
+    assert.ok(state.lastCheckAt, 'lastCheckAt 不应被通道提示覆盖')
+    // 第二次启动：每日闸生效，不再提示，但仍然照常启动
+    const second = runU(fx, ['-u', 'web'], env)
+    assert.equal(second.status, 0, `stderr: ${second.stderr}`)
+    assert.ok(!second.stderr.includes('next 通道已有'))
+    assert.deepEqual(readCalls(fx, 'dsh-calls'), [['web'], ['web']])
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('-u web：DSH_SAFE_NO_UPDATE_CHECK=1 关闭启动期通道提示，显式 --check 不受影响', async () => {
+  const fx = makeFixture()
+  try {
+    const env = { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_NEXT: NEW_VERSION }
+    const boot = runU(fx, ['-u', 'web'], env) // commonEnv 已置 DSH_SAFE_NO_UPDATE_CHECK=1
+    assert.equal(boot.status, 0, `stderr: ${boot.stderr}`)
+    assert.ok(!boot.stderr.includes('next 通道已有'))
+    assert.ok(boot.stdout.includes('dsh booted'))
+    const explicit = runUpdate(fx, ['--check'], env)
+    assert.equal(explicit.status, 0, `stderr: ${explicit.stderr}`)
+    assert.ok(explicit.stderr.includes(`next 通道已有 ${NEW_VERSION}`)) // 显式检查照常报告
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('update --check：报告计划与命令，不安装不恢复（非交互缺 -y 也放行）', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runUpdate(fx, ['--check'])
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes(`dsh ${PKG} ${OLD_VERSION} → ${NEW_VERSION} (npm)`))
+    assert.ok(result.stderr.includes(`npm install -g ${PKG}@${NEW_VERSION}`))
+    assert.ok(!result.stderr.includes('不是交互终端'))
+    assert.ok(!readCalls(fx, 'npm-calls').some((c) => c[0] === 'install'))
+    assert.equal(JSON.parse(readFileSync(fx.pkgJsonPath, 'utf8')).version, OLD_VERSION) // 未被升级
+    assert.ok(result.stderr.includes('--check'))
+    assert.ok(readFileSync(fx.patchPath, 'utf8').includes(MANAGED_START)) // 隔离未恢复
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('update --check：已是最新 → 退出 0 且无安装', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runUpdate(fx, ['--check'], { FAKE_NPM_LATEST: OLD_VERSION })
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('无需更新'))
+    assert.ok(!readCalls(fx, 'npm-calls').some((c) => c[0] === 'install'))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('update --check --to：钉住目标版本的计划也不安装（且不查 latest）', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runUpdate(fx, ['--check', '--to', '8.8.8'])
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes(`dsh ${PKG} ${OLD_VERSION} → 8.8.8 (npm)`))
+    assert.deepEqual(readCalls(fx, 'npm-calls'), []) // --to 不查 latest，--check 不装
+    assert.equal(JSON.parse(readFileSync(fx.pkgJsonPath, 'utf8')).version, OLD_VERSION)
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('-u --check web：只检查，不启动 dsh 也不安装', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runU(fx, ['-u', '--check', 'web'])
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.deepEqual(readCalls(fx, 'dsh-calls'), [])
+    assert.ok(!readCalls(fx, 'npm-calls').some((c) => c[0] === 'install'))
+    assert.ok(!result.stdout.includes('dsh booted'))
   } finally {
     cleanup(fx.home)
   }
