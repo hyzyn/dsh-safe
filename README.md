@@ -42,7 +42,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | 命令 | 说明 |
 | --- | --- |
 | `dsh-safe <dsh 参数…>` | 包装运行 dsh（把平时的 `dsh` 换成 `dsh-safe`） |
-| `dsh-safe -u [update 选项] [dsh 参数…]` | 先升级 dsh 与 dsh-safe 自身（已最新则跳过），再按包装模式启动；`--update` 等价 |
+| `dsh-safe -u [update 选项] [dsh 参数…]` | 先升级 dsh 与 dsh-safe 自身（已最新则跳过），再按包装模式启动；不接任何 dsh 参数时只升级、不启动；`--update` 等价 |
 | `dsh-safe update [选项]` | 只升级不启动，选项见下 |
 | `dsh-safe list [--profile <名>] [--json]` | 查看隔离名单（`--json` 输出结构化 JSON，缺省全部 profile） |
 | `dsh-safe doctor` | 环境体检：版本、DSH_HOME、profiles、台账、各 patch 健康度 |

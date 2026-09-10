@@ -42,7 +42,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | Command | Description |
 | --- | --- |
 | `dsh-safe <dsh args…>` | wrap and run dsh (swap `dsh` for `dsh-safe`) |
-| `dsh-safe -u [update options] [dsh args…]` | upgrade dsh and dsh-safe itself first (skip if latest), then boot in wrap mode; `--update` is an alias |
+| `dsh-safe -u [update options] [dsh args…]` | upgrade dsh and dsh-safe itself first (skip if latest), then boot in wrap mode; with no dsh args at all it only upgrades and does not boot; `--update` is an alias |
 | `dsh-safe update [options]` | upgrade only, no boot — options below |
 | `dsh-safe list [--profile <name>] [--json]` | show quarantined plugins (`--json` outputs structured JSON; defaults to all profiles) |
 | `dsh-safe doctor` | environment check: versions, DSH_HOME, profiles, ledger, patch health |
