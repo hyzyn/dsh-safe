@@ -293,12 +293,13 @@ test('update：registry 版本低于本地时自身不降级', async () => {
   }
 })
 
-test('-u web：已最新 → 静默跳过升级直接启动', async () => {
+test('-u web：已最新 → 报一行状态后直接启动（不再静默）', async () => {
   const fx = makeFixture()
   try {
-    const result = runU(fx, ['-u', 'web'], { FAKE_NPM_LATEST: OLD_VERSION })
+    // commonEnv 默认置 DSH_SAFE_NO_UPDATE_CHECK=1，这里显式清掉才能看到启动期提示
+    const result = runU(fx, ['-u', 'web'], { FAKE_NPM_LATEST: OLD_VERSION, DSH_SAFE_NO_UPDATE_CHECK: '' })
     assert.equal(result.status, 0, `stderr: ${result.stderr}`)
-    assert.ok(!result.stderr.includes('无需更新')) // 日常启动的快路径不刷屏
+    assert.ok(result.stderr.includes('无需更新'))
     assert.ok(result.stdout.includes('dsh booted'))
     assert.deepEqual(readCalls(fx, 'dsh-calls'), [['web']])
     assert.ok(!readCalls(fx, 'npm-calls').some((c) => c[0] === 'install'))
@@ -460,39 +461,42 @@ test('channelGap：排除 latest、取版本最高的通道、同版本按通道
   assert.equal(channelGap({ latest: '1.0.0', next: '0.9.0' }, '1.0.0'), null) // 落后通道不算差距
 })
 
-test('-u web：通道提示每天最多一次，且与新版提示共用状态文件互不覆盖', async () => {
+test('-u web：启动路径每次都报状态与通道差距，不再有每日闸、也不写 channelNotifyAt', async () => {
   const fx = makeFixture()
   try {
     const env = { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_NEXT: NEW_VERSION, DSH_SAFE_NO_UPDATE_CHECK: '' }
-    const first = runU(fx, ['-u', 'web'], env)
-    assert.equal(first.status, 0, `stderr: ${first.stderr}`)
-    assert.ok(first.stderr.includes(`next 通道已有 ${NEW_VERSION}`))
-    assert.ok(first.stdout.includes('dsh booted'))
-    // 通道提示先写 channelNotifyAt，随后的包装启动写 lastCheckAt——两个键都要在
+    // 两次启动输出必须一致：裸 -u 与 -u <dsh 参数> 曾经一个每次都报、一个每天一次，
+    // 用户看到的是"时有时无"——闸已移除
+    for (const round of [1, 2]) {
+      const r = runU(fx, ['-u', 'web'], env)
+      assert.equal(r.status, 0, `第 ${round} 次 stderr: ${r.stderr}`)
+      assert.ok(r.stderr.includes('无需更新'), `第 ${round} 次应报状态`)
+      assert.ok(r.stderr.includes(`next 通道已有 ${NEW_VERSION}`), `第 ${round} 次应报通道差距`)
+      assert.ok(r.stdout.includes('dsh booted'), `第 ${round} 次应照常启动`)
+    }
+    // 与 dsh-safe 新版提示共用的状态文件里只应留 lastCheckAt
     const state = JSON.parse(readFileSync(join(fx.home, 'dsh-safe', 'update-check.json'), 'utf8'))
-    assert.ok(state.channelNotifyAt, 'channelNotifyAt 应已写入')
-    assert.ok(state.lastCheckAt, 'lastCheckAt 不应被通道提示覆盖')
-    // 第二次启动：每日闸生效，不再提示，但仍然照常启动
-    const second = runU(fx, ['-u', 'web'], env)
-    assert.equal(second.status, 0, `stderr: ${second.stderr}`)
-    assert.ok(!second.stderr.includes('next 通道已有'))
+    assert.ok(state.lastCheckAt, 'lastCheckAt 应仍在')
+    assert.equal(state.channelNotifyAt, undefined, 'channelNotifyAt 这套闸已移除')
     assert.deepEqual(readCalls(fx, 'dsh-calls'), [['web'], ['web']])
   } finally {
     cleanup(fx.home)
   }
 })
 
-test('-u web：DSH_SAFE_NO_UPDATE_CHECK=1 关闭启动期通道提示，显式 --check 不受影响', async () => {
+test('-u web：DSH_SAFE_NO_UPDATE_CHECK=1 关闭启动期的状态与通道提示，显式 --check 不受影响', async () => {
   const fx = makeFixture()
   try {
     const env = { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_NEXT: NEW_VERSION }
     const boot = runU(fx, ['-u', 'web'], env) // commonEnv 已置 DSH_SAFE_NO_UPDATE_CHECK=1
     assert.equal(boot.status, 0, `stderr: ${boot.stderr}`)
+    assert.ok(!boot.stderr.includes('无需更新'))
     assert.ok(!boot.stderr.includes('next 通道已有'))
-    assert.ok(boot.stdout.includes('dsh booted'))
+    assert.ok(boot.stdout.includes('dsh booted')) // 静默不等于不启动
     const explicit = runUpdate(fx, ['--check'], env)
     assert.equal(explicit.status, 0, `stderr: ${explicit.stderr}`)
-    assert.ok(explicit.stderr.includes(`next 通道已有 ${NEW_VERSION}`)) // 显式检查照常报告
+    assert.ok(explicit.stderr.includes('无需更新')) // 显式检查照常报告
+    assert.ok(explicit.stderr.includes(`next 通道已有 ${NEW_VERSION}`))
   } finally {
     cleanup(fx.home)
   }
