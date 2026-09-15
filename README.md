@@ -68,7 +68,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | 选项 | 说明 |
 | --- | --- |
 | `-y` / `--yes` | 跳过升级确认（非交互终端必须显式加 `-y`） |
-| `--to <版本\|tag>` | 指定 dsh 的目标版本（也接受 dist-tag，如 `next`），也是回滚方式（显式允许降级）；dsh-safe 自身始终升到最新 |
+| `--to <版本\|tag>` | 指定 dsh 的目标版本（也接受 dist-tag，如 `next` / `alpha`），也是回滚方式（显式允许降级）；dsh-safe 自身始终升到最新 |
 | `--check` | 只报告会不会升级、升到什么（含 `latest` 之外的通道差距），不提示、不安装、不启动；非交互环境无需 `-y` |
 | `--self` | 只更新 dsh-safe 自身，不动 dsh 与隔离状态 |
 | `--no-restore` | 升级 dsh 后不自动恢复被隔离的插件 |
@@ -80,7 +80,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 | 变量 | 说明 |
 | --- | --- |
 | `DSH_SAFE_LANG=zh\|en` | 强制提示信息语言（缺省跟随 `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE`） |
-| `DSH_SAFE_NO_UPDATE_CHECK=1` | 关闭启动期的提示（每天最多一次的 dsh-safe 新版提示、dsh 的 `next` 通道差距提示）；显式 `update` / `--check` 不受影响 |
+| `DSH_SAFE_NO_UPDATE_CHECK=1` | 关闭启动期的提示（每天最多一次的 dsh-safe 新版提示、dsh 的 `latest` 之外通道差距提示）；显式 `update` / `--check` 不受影响 |
 | `DSH_HOME` | dsh 的 home 目录（dsh 自己的环境变量；隔离台账与各 patch 路径随之） |
 | `DSH_SAFE_AI_KEY` | AI 功能 key（未设置 = AI 整体禁用）；默认对接 DeepSeek |
 | `DSH_SAFE_AI_BASE_URL` | AI 接口地址（OpenAI 兼容），默认 `https://api.deepseek.com` |
@@ -89,7 +89,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 
 升级行为：`dsh-safe update` 自动探测 dsh 的包名与安装方式（npm / pnpm 全局安装）、对比最新版本后代跑升级，完成后自动恢复所有被隔离的插件——新 dsh 下仍不兼容的会在下次启动时再次被自动隔离。日常把 `dsh-safe -u web` 当启动命令即可：dsh 已是最新时直接启动（仅一次版本检查），有更新时先升级并恢复隔离再启动，更新检查失败只告警、照常启动。`-u` 后可接 update 的选项（如 `-u -y web`）与包装旗标（如 `-u --max-retries 0 web`）。
 
-版本通道：只跟随 npm 的 `latest`（一次 `npm view <包> dist-tags --json` 拿到全部通道，不额外增加启动开销）。上游常把新版本先发在 `next` 上，于是会出现「`latest` 已是最新，但 `next` 更新」——此时 `-u` 仍只会报告「latest 通道已是最新」，**但会跟一行通道差距提示**，且绝不自动升级到 `next`（dsh-safe 不替用户决定上未发布通道）。想跟进就显式 `dsh-safe update --to next`。启动路径上的这条提示每天最多一次；`update` 与 `--check` 这类显式调用每次都报告。想知道「会不会升、升到什么」而不做任何改动，用 `dsh-safe update --check`。
+版本通道：只跟随 npm 的 `latest`（一次 `npm view <包> dist-tags --json` 拿到全部通道，不额外增加启动开销）。上游常把新版本先发在 `next` / `alpha` 等通道上，于是会出现「`latest` 已是最新，但某个通道更新」——此时 `-u` 仍只会报告「latest 通道已是最新」，**但会跟一行通道差距提示，点名版本最高的那个通道**（如 `alpha 通道已有 0.1.6-alpha.1`），且绝不自动升级过去（dsh-safe 不替用户决定上未发布通道）。想跟进就显式 `dsh-safe update --to <tag>`（`next` / `alpha` 都行）。通道名不写死，上游以后加 `beta` / `canary` 也照报。启动路径上的这条提示每天最多一次；`update` 与 `--check` 这类显式调用每次都报告。想知道「会不会升、升到什么」而不做任何改动，用 `dsh-safe update --check`。
 
 ## 工作原理
 

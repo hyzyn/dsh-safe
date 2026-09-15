@@ -68,7 +68,7 @@ Every short flag has an equivalent long form (`-u` = `--update`, `-y` = `--yes`,
 | Option | Description |
 | --- | --- |
 | `-y` / `--yes` | Skip the upgrade confirmation (required in non-interactive terminals) |
-| `--to <version\|tag>` | Target dsh version (a dist-tag such as `next` works too), also how you roll back (explicit downgrades allowed); dsh-safe itself always upgrades to the latest |
+| `--to <version\|tag>` | Target dsh version (a dist-tag such as `next` / `alpha` works too), also how you roll back (explicit downgrades allowed); dsh-safe itself always upgrades to the latest |
 | `--check` | Report only whether and to what it would upgrade (including any gap beyond `latest`); no prompt, no install, no boot. Needs no `-y` in non-interactive environments |
 | `--self` | Update dsh-safe itself only; dsh and quarantine state untouched |
 | `--no-restore` | Do not auto-restore quarantined plugins after upgrading dsh |
@@ -80,7 +80,7 @@ Every short flag has an equivalent long form (`-u` = `--update`, `-y` = `--yes`,
 | Variable | Description |
 | --- | --- |
 | `DSH_SAFE_LANG=zh\|en` | Force message language (defaults to `LC_ALL` / `LC_MESSAGES` / `LANG` / `LANGUAGE`) |
-| `DSH_SAFE_NO_UPDATE_CHECK=1` | Disable boot-time notices (the at-most-daily dsh-safe new-version notice, the dsh `next`-channel gap hint); explicit `update` / `--check` are unaffected |
+| `DSH_SAFE_NO_UPDATE_CHECK=1` | Disable boot-time notices (the at-most-daily dsh-safe new-version notice, the dsh non-`latest` channel-gap hint); explicit `update` / `--check` are unaffected |
 | `DSH_HOME` | dsh home directory (dsh's own variable; the quarantine ledger and patch paths follow it) |
 | `DSH_SAFE_AI_KEY` | AI feature key (unset = AI disabled entirely); defaults to DeepSeek |
 | `DSH_SAFE_AI_BASE_URL` | AI endpoint (OpenAI-compatible), default `https://api.deepseek.com` |
@@ -89,7 +89,7 @@ Every short flag has an equivalent long form (`-u` = `--update`, `-y` = `--yes`,
 
 How upgrading works: `dsh-safe update` auto-detects the dsh package name and install method (npm / pnpm global installs), compares against the latest version and runs the upgrade for you, then automatically restores all quarantined plugins — any still incompatible under the new dsh will be auto-quarantined again on the next start. For daily use, just make `dsh-safe -u web` your start command: boots immediately when dsh is already latest (one version check), upgrades + restores first when an update is available, and only warns (still boots) if the update check itself fails. `-u` accepts update options (e.g. `-u -y web`) and wrapper flags (e.g. `-u --max-retries 0 web`).
 
-Version channels: only npm's `latest` is followed (one `npm view <pkg> dist-tags --json` call fetches every channel, so boot cost does not change). Upstream often publishes a new version to `next` first, which produces the "latest is already current, but `next` is newer" situation — `-u` still reports "already up to date on the latest channel", **but now follows it with a one-line channel-gap hint**, and never auto-upgrades to `next` (dsh-safe does not decide for you to move onto an unreleased channel). To follow it explicitly: `dsh-safe update --to next`. On the boot path that hint is shown at most once a day; explicit calls such as `update` and `--check` always report it. To ask "would it upgrade, and to what?" without changing anything, use `dsh-safe update --check`.
+Version channels: only npm's `latest` is followed (one `npm view <pkg> dist-tags --json` call fetches every channel, so boot cost does not change). Upstream often publishes a new version to `next` / `alpha` first, which produces the "latest is already current, but some channel is newer" situation — `-u` still reports "already up to date on the latest channel", **but follows it with a one-line channel-gap hint naming the highest-versioned channel** (e.g. `the alpha channel has 0.1.6-alpha.1`), and never auto-upgrades there (dsh-safe does not decide for you to move onto an unreleased channel). To follow it explicitly: `dsh-safe update --to <tag>` (`next` / `alpha` both work). Channel names are not hard-coded, so `beta` / `canary` added upstream would be reported too. On the boot path that hint is shown at most once a day; explicit calls such as `update` and `--check` always report it. To ask "would it upgrade, and to what?" without changing anything, use `dsh-safe update --check`.
 
 ## How It Works
 
