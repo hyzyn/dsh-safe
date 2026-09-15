@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { applyManagedBlock, buildManagedBlock, MANAGED_START } from '../lib/patchfile.js'
-import { isNewerVersion } from '../lib/update.js'
+import { channelGap, isNewerVersion } from '../lib/update.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const BIN = join(ROOT, 'bin', 'dsh-safe.js')
@@ -40,8 +40,8 @@ process.exit(0)
   symlinkSync(dshBin, join(binDir, 'dsh'))
 
   // fake npm：view 返回 dist-tags JSON——latest 取 FAKE_NPM_LATEST / FAKE_NPM_SELF_LATEST
-  //（自身包缺省读真实 package.json → 视为最新），next 取 FAKE_NPM_NEXT（缺省没有 next 键，
-  // 即无通道差距）；install 只改写 fake dsh 的版本
+  //（自身包缺省读真实 package.json → 视为最新），next 取 FAKE_NPM_NEXT、alpha 取
+  // FAKE_NPM_ALPHA（缺省没有该键，即无通道差距）；install 只改写 fake dsh 的版本
   const npmBin = join(binDir, 'npm')
   writeFileSync(
     npmBin,
@@ -59,6 +59,8 @@ if (args[0] === 'view') {
     const tags = { latest }
     const next = isDsh ? process.env.FAKE_NPM_NEXT : process.env.FAKE_NPM_SELF_NEXT
     if (next) tags.next = next
+    const alpha = isDsh ? process.env.FAKE_NPM_ALPHA : undefined
+    if (alpha) tags.alpha = alpha
     console.log(JSON.stringify(tags))
   } else {
     console.log(latest)
@@ -352,7 +354,7 @@ test('update：latest 已最新但 next 有更新 → 提示通道差距且不�
     assert.equal(result.status, 0, `stderr: ${result.stderr}`)
     assert.ok(result.stderr.includes('无需更新'))
     assert.ok(result.stderr.includes(`next 通道已有 ${NEW_VERSION}`))
-    assert.ok(result.stderr.includes(`当前 latest 通道 ${OLD_VERSION}`))
+    assert.ok(result.stderr.includes(`当前 ${OLD_VERSION}`))
     assert.ok(result.stderr.includes('dsh-safe update --to next'))
     assert.ok(!readCalls(fx, 'npm-calls').some((c) => c[0] === 'install')) // 只提示，绝不上未发布通道
     assert.equal(JSON.parse(readFileSync(fx.pkgJsonPath, 'utf8')).version, OLD_VERSION)
@@ -373,6 +375,89 @@ test('update：将装到的版本已追平 next → 不提示通道差距', asyn
   } finally {
     cleanup(fx.home)
   }
+})
+
+test('update：latest 已最新但 alpha 有更新 → 提示 alpha 通道差距（不只是 next）', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runUpdate(fx, ['-y', '--no-verify'], { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_ALPHA: NEW_VERSION })
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('无需更新'))
+    assert.ok(result.stderr.includes(`alpha 通道已有 ${NEW_VERSION}`))
+    assert.ok(result.stderr.includes(`当前 ${OLD_VERSION}`))
+    assert.ok(result.stderr.includes('dsh-safe update --to alpha'))
+    assert.ok(!readCalls(fx, 'npm-calls').some((c) => c[0] === 'install')) // 只提示，绝不上未发布通道
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('update：未升级（本地已在新通道上）时 alpha 有更新 → 同样提示', async () => {
+  const fx = makeFixture()
+  try {
+    // 复现真机场景：本地 dsh 0.1.0 由 next 通道装来（next=0.1.0，latest 反而更旧），
+    // alpha 0.2.0-alpha.1 更新——没有任何升级计划，提示只能由通道差距给出
+    const result = runUpdate(fx, ['--check'], {
+      FAKE_NPM_LATEST: '0.0.9',
+      FAKE_NPM_NEXT: OLD_VERSION,
+      FAKE_NPM_ALPHA: '0.2.0-alpha.1',
+    })
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes('无需更新'))
+    assert.ok(result.stderr.includes('alpha 通道已有 0.2.0-alpha.1'))
+    assert.ok(result.stderr.includes(`当前 ${OLD_VERSION}`))
+    assert.ok(!result.stderr.includes('next 通道已有'))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('update：多个通道都有更新 → 只提示版本最高的那个', async () => {
+  const fx = makeFixture()
+  try {
+    const newer = runUpdate(fx, ['--check'], { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_NEXT: '0.2.0', FAKE_NPM_ALPHA: NEW_VERSION })
+    assert.equal(newer.status, 0, `stderr: ${newer.stderr}`)
+    assert.ok(newer.stderr.includes(`alpha 通道已有 ${NEW_VERSION}`))
+    assert.ok(!newer.stderr.includes('next 通道已有'))
+
+    const older = runUpdate(fx, ['--check'], { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_NEXT: NEW_VERSION, FAKE_NPM_ALPHA: '0.2.0' })
+    assert.equal(older.status, 0, `stderr: ${older.stderr}`)
+    assert.ok(older.stderr.includes(`next 通道已有 ${NEW_VERSION}`))
+    assert.ok(!older.stderr.includes('alpha 通道已有'))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('update：通道版本与将装到的版本同核心（预发布）→ 不提示', async () => {
+  const fx = makeFixture()
+  try {
+    // latest 9.9.9（正在升上去），alpha 是 9.9.9-alpha.1 —— 同为 9.9.9 的预发布，不是"更新"
+    const result = runUpdate(fx, ['-y', '--no-verify'], {
+      FAKE_NPM_LATEST: NEW_VERSION,
+      FAKE_NPM_ALPHA: `${NEW_VERSION}-alpha.1`,
+    })
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes(`dsh ${PKG} ${OLD_VERSION} → ${NEW_VERSION}`))
+    assert.ok(!result.stderr.includes('alpha 通道已有'))
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('channelGap：排除 latest、取版本最高的通道、同版本按通道名定序、空值安全', () => {
+  assert.equal(channelGap(null, '1.0.0'), null)
+  assert.equal(channelGap({ latest: '2.0.0' }, '1.0.0'), null) // latest 不参与差距
+  assert.equal(channelGap({ latest: '1.0.0' }, null), null)
+  assert.deepEqual(channelGap({ latest: '1.0.0', next: '1.1.0' }, '1.0.0'), { tag: 'next', version: '1.1.0' })
+  assert.deepEqual(
+    channelGap({ latest: '1.0.0', next: '1.1.0', alpha: '1.2.0-alpha.1' }, '1.0.0'),
+    { tag: 'alpha', version: '1.2.0-alpha.1' },
+  )
+  // 与 registry 返回的键顺序无关：同版本时固定取通道名字典序在前的
+  assert.deepEqual(channelGap({ next: '1.2.0', alpha: '1.2.0' }, '1.0.0'), { tag: 'alpha', version: '1.2.0' })
+  assert.deepEqual(channelGap({ alpha: '1.2.0', next: '1.2.0' }, '1.0.0'), { tag: 'alpha', version: '1.2.0' })
+  assert.equal(channelGap({ latest: '1.0.0', next: '0.9.0' }, '1.0.0'), null) // 落后通道不算差距
 })
 
 test('-u web：通道提示每天最多一次，且与新版提示共用状态文件互不覆盖', async () => {
@@ -450,6 +535,19 @@ test('update --check --to：钉住目标版本的计划也不安装（且不查 
     assert.ok(result.stderr.includes(`dsh ${PKG} ${OLD_VERSION} → 8.8.8 (npm)`))
     assert.deepEqual(readCalls(fx, 'npm-calls'), []) // --to 不查 latest，--check 不装
     assert.equal(JSON.parse(readFileSync(fx.pkgJsonPath, 'utf8')).version, OLD_VERSION)
+  } finally {
+    cleanup(fx.home)
+  }
+})
+
+test('update --check --to alpha：dist-tag 原样进安装命令（提示里的"跟进"命令可直接用）', async () => {
+  const fx = makeFixture()
+  try {
+    const result = runUpdate(fx, ['--check', '--to', 'alpha'])
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`)
+    assert.ok(result.stderr.includes(`dsh ${PKG} ${OLD_VERSION} → alpha (npm)`))
+    assert.ok(result.stderr.includes(`npm install -g ${PKG}@alpha`))
+    assert.deepEqual(readCalls(fx, 'npm-calls'), [])
   } finally {
     cleanup(fx.home)
   }
