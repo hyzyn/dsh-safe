@@ -89,7 +89,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 
 升级行为：`dsh-safe update` 自动探测 dsh 的包名与安装方式（npm / pnpm 全局安装）、对比最新版本后代跑升级，完成后自动恢复所有被隔离的插件——新 dsh 下仍不兼容的会在下次启动时再次被自动隔离。日常把 `dsh-safe -u web` 当启动命令即可：dsh 已是最新时打一行状态后直接启动（仅一次版本检查），有更新时先升级并恢复隔离再启动，更新检查失败只告警、照常启动。`-u` 后可接 update 的选项（如 `-u -y web`）与包装旗标（如 `-u --max-retries 0 web`）。
 
-版本通道：只跟随 npm 的 `latest`（一次 `npm view <包> dist-tags --json` 拿到全部通道，不额外增加启动开销）。上游常把新版本先发在 `next` / `alpha` 等通道上，于是会出现「`latest` 已是最新，但某个通道更新」——此时会报告「latest 通道已是最新」**并跟一行通道差距提示，点名版本最高的那个通道**（如 `alpha 通道已有 0.1.6-alpha.1`），且绝不自动升级过去（dsh-safe 不替用户决定上未发布通道）。想跟进就显式 `dsh-safe update --to <tag>`（`next` / `alpha` 都行）。通道名不写死，上游以后加 `beta` / `canary` 也照报。启动路径也每次都报：`-u`、`update`、`--check` 一视同仁，不存在"加了 dsh 参数就沉默"的差异（曾经有过每天一次的闸，观感是"时有时无"，已取消）；日常启动嫌吵就用 `DSH_SAFE_NO_UPDATE_CHECK=1` 整体关掉。想知道「会不会升、升到什么」而不做任何改动，用 `dsh-safe update --check`。
+版本通道：只跟随 npm 的 `latest`（一次 `npm view <包> dist-tags --json` 拿到全部通道，不额外增加启动开销）。上游常把新版本先发在 `next` / `alpha` 等通道上，于是会出现「`latest` 已是最新，但某个通道更新」——此时会报告「latest 通道已是最新」**并跟通道差距提示——每个比本地新的通道各一行，按版本升序**（如 `next 通道已有 0.1.5-rc.2` 之后跟 `alpha 通道已有 0.1.6-alpha.1`；曾经只报版本最高的那个，next 就被 alpha 盖掉了），且绝不自动升级过去（dsh-safe 不替用户决定上未发布通道）。想跟进就显式 `dsh-safe update --to <tag>`（`next` / `alpha` 都行）。通道名不写死，上游以后加 `beta` / `canary` 也照报。启动路径也每次都报：`-u`、`update`、`--check` 一视同仁，不存在"加了 dsh 参数就沉默"的差异（曾经有过每天一次的闸，观感是"时有时无"，已取消）；日常启动嫌吵就用 `DSH_SAFE_NO_UPDATE_CHECK=1` 整体关掉。想知道「会不会升、升到什么」而不做任何改动，用 `dsh-safe update --check`。
 
 ## 工作原理
 

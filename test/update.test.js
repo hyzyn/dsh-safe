@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { applyManagedBlock, buildManagedBlock, MANAGED_START } from '../lib/patchfile.js'
-import { channelGap, isNewerVersion } from '../lib/update.js'
+import { channelGaps, isNewerVersion } from '../lib/update.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const BIN = join(ROOT, 'bin', 'dsh-safe.js')
@@ -413,18 +413,20 @@ test('update：未升级（本地已在新通道上）时 alpha 有更新 → �
   }
 })
 
-test('update：多个通道都有更新 → 只提示版本最高的那个', async () => {
+test('update：多个通道都有更新 → 每个都报，按版本升序（next 不许被 alpha 盖掉）', async () => {
   const fx = makeFixture()
   try {
-    const newer = runUpdate(fx, ['--check'], { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_NEXT: '0.2.0', FAKE_NPM_ALPHA: NEW_VERSION })
-    assert.equal(newer.status, 0, `stderr: ${newer.stderr}`)
-    assert.ok(newer.stderr.includes(`alpha 通道已有 ${NEW_VERSION}`))
-    assert.ok(!newer.stderr.includes('next 通道已有'))
+    // 真机形态：本地在 latest(0.1.0)，next 与 alpha 都比它新——两个都要出现在输出里
+    const both = runUpdate(fx, ['--check'], { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_NEXT: '0.2.0', FAKE_NPM_ALPHA: NEW_VERSION })
+    assert.equal(both.status, 0, `stderr: ${both.stderr}`)
+    assert.ok(both.stderr.includes('next 通道已有 0.2.0'), `缺 next 提示: ${both.stderr}`)
+    assert.ok(both.stderr.includes(`alpha 通道已有 ${NEW_VERSION}`), `缺 alpha 提示: ${both.stderr}`)
+    assert.ok(both.stderr.indexOf('next 通道已有') < both.stderr.indexOf('alpha 通道已有'), '应按版本升序')
 
-    const older = runUpdate(fx, ['--check'], { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_NEXT: NEW_VERSION, FAKE_NPM_ALPHA: '0.2.0' })
-    assert.equal(older.status, 0, `stderr: ${older.stderr}`)
-    assert.ok(older.stderr.includes(`next 通道已有 ${NEW_VERSION}`))
-    assert.ok(!older.stderr.includes('alpha 通道已有'))
+    // 反过来也按版本升序，而不是按 dist-tags 的键顺序
+    const reversed = runUpdate(fx, ['--check'], { FAKE_NPM_LATEST: OLD_VERSION, FAKE_NPM_NEXT: NEW_VERSION, FAKE_NPM_ALPHA: '0.2.0' })
+    assert.equal(reversed.status, 0, `stderr: ${reversed.stderr}`)
+    assert.ok(reversed.stderr.indexOf('alpha 通道已有') < reversed.stderr.indexOf('next 通道已有'))
   } finally {
     cleanup(fx.home)
   }
@@ -446,19 +448,30 @@ test('update：通道版本与将装到的版本同核心（预发布）→ 不�
   }
 })
 
-test('channelGap：排除 latest、取版本最高的通道、同版本按通道名定序、空值安全', () => {
-  assert.equal(channelGap(null, '1.0.0'), null)
-  assert.equal(channelGap({ latest: '2.0.0' }, '1.0.0'), null) // latest 不参与差距
-  assert.equal(channelGap({ latest: '1.0.0' }, null), null)
-  assert.deepEqual(channelGap({ latest: '1.0.0', next: '1.1.0' }, '1.0.0'), { tag: 'next', version: '1.1.0' })
-  assert.deepEqual(
-    channelGap({ latest: '1.0.0', next: '1.1.0', alpha: '1.2.0-alpha.1' }, '1.0.0'),
+test('channelGaps：排除 latest、列出全部更新通道（版本升序）、同版本按通道名定序、空值安全', () => {
+  assert.deepEqual(channelGaps(null, '1.0.0'), [])
+  assert.deepEqual(channelGaps({ latest: '2.0.0' }, '1.0.0'), []) // latest 不参与差距
+  assert.deepEqual(channelGaps({ latest: '1.0.0' }, null), [])
+  assert.deepEqual(channelGaps({ latest: '1.0.0', next: '1.1.0' }, '1.0.0'), [{ tag: 'next', version: '1.1.0' }])
+  // 都更新时全列出来：只报最高的那个会让 next 被 alpha 盖掉（真机踩过）
+  assert.deepEqual(channelGaps({ latest: '1.0.0', next: '1.1.0', alpha: '1.2.0-alpha.1' }, '1.0.0'), [
+    { tag: 'next', version: '1.1.0' },
     { tag: 'alpha', version: '1.2.0-alpha.1' },
-  )
-  // 与 registry 返回的键顺序无关：同版本时固定取通道名字典序在前的
-  assert.deepEqual(channelGap({ next: '1.2.0', alpha: '1.2.0' }, '1.0.0'), { tag: 'alpha', version: '1.2.0' })
-  assert.deepEqual(channelGap({ alpha: '1.2.0', next: '1.2.0' }, '1.0.0'), { tag: 'alpha', version: '1.2.0' })
-  assert.equal(channelGap({ latest: '1.0.0', next: '0.9.0' }, '1.0.0'), null) // 落后通道不算差距
+  ])
+  // 与 registry 返回的键顺序无关：同版本时按通道名字典序
+  assert.deepEqual(channelGaps({ alpha: '1.2.0', next: '1.2.0' }, '1.0.0'), [
+    { tag: 'alpha', version: '1.2.0' },
+    { tag: 'next', version: '1.2.0' },
+  ])
+  assert.deepEqual(channelGaps({ next: '1.2.0', alpha: '1.2.0' }, '1.0.0'), [
+    { tag: 'alpha', version: '1.2.0' },
+    { tag: 'next', version: '1.2.0' },
+  ])
+  assert.deepEqual(channelGaps({ latest: '1.0.0', next: '0.9.0' }, '1.0.0'), []) // 落后通道不算差距
+  // 与当前版本同核心的预发布不算更新；同核心的正式版更不算
+  assert.deepEqual(channelGaps({ latest: '1.0.0', alpha: '1.0.0-alpha.1' }, '1.0.0'), [])
+  // 同核心的正式版（1.0.0 对 1.0.0-alpha.1）确实更新，不算"白名单外"
+  assert.deepEqual(channelGaps({ latest: '1.0.0-alpha.1', beta: '1.0.0' }, '1.0.0-alpha.1'), [{ tag: 'beta', version: '1.0.0' }])
 })
 
 test('-u web：启动路径每次都报状态与通道差距，不再有每日闸、也不写 channelNotifyAt', async () => {
