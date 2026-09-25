@@ -2,9 +2,14 @@
 
 [中文](./README.md) | English
 
-When a community plugin of DeepSeek Harness (DSH) is incompatible with the dsh runtime, `dsh web` **fails to boot entirely** — the loader flattens all patch layers into a single load tree, so if any plugin fails to import, throws inside `apply`, or times out waiting for an injected service, the boot audit rejects the whole tree and the process exits. The only remedy was manually editing `cordis.patch.yml` to disable the broken plugin.
+> **Channel applicability (read this first)**: before dsh **0.1.6** (npm `latest` is still 0.1.5-rc.3), any plugin failure aborts the whole boot, so dsh-safe's **auto-quarantine** still applies on that channel. From dsh **0.1.6** on (`next` / `alpha`, including 0.1.7-rc.x) only required entries are fatal and any other entry failure merely warns while startup succeeds — dsh-safe then **writes nothing** and only performs a **read-only inspection** that lists the inactive plugins, their reasons and the repair entry point. The wrapper picks the mode automatically; there is nothing to configure.
+
+When a community plugin of DeepSeek Harness (DSH) is incompatible with the dsh runtime, dsh **before 0.1.6** makes `dsh web` **fail to boot entirely** — the loader flattens all patch layers into a single load tree, so if any plugin fails to import, throws inside `apply`, or times out waiting for an injected service, the boot audit rejects the whole tree and the process exits. The only remedy was manually editing `cordis.patch.yml` to disable the broken plugin.
 
 **dsh-safe automates that manual step**: it wraps `dsh`, identifies the offending plugin from the startup error, sets the matching row to `disabled: true` in the profile patch (recording it in a quarantine ledger), and retries automatically. A broken plugin only breaks itself; dsh boots as usual.
+
+From dsh **0.1.6** on, upstream changed the policy (`auditStartupEntries` in `packages/boot/app-boot`): only the global required entries (`agent-loop`, `webserver`, `modules`, `connection`, `headless-runner`, `acp`, `sdk-jsonrpc-server`) are fatal, while **every other entry failure just prints a warning and boot continues**. Plugins therefore go *silently missing*: the feature is gone, `$DSH_HOME/logs/startup-*.log` is only written for fatal failures, and that stderr warning is the only clue (invisible when dsh is started from a GUI). dsh-safe switches to a **read-only inspection** there: it turns `warning: N entries did not activate` into a list plus a repair hint, and **never touches the patch, the ledger, or retries**.
+
 
 ## Installation
 
@@ -93,12 +98,30 @@ Version channels: only npm's `latest` is followed (one `npm view <pkg> dist-tags
 
 ## How It Works
 
-1. **Failure identification**: when dsh fails to start, stderr carries five kinds of signatures (`plugin(s) failed to load: …`, `N entries did not activate` with per-row failures, `failed to apply/import loader entry <id> (<name>)`, outer stack frames `…#<entryId>`, and `duplicate loader entry id: <id>` duplicates). dsh-safe extracts the broken plugin's package name and row id from them.
+1. **Failure identification**: when dsh fails to start, stderr carries five kinds of signatures (`plugin(s) failed to load: …`, `N entries did not activate` with per-row failures, `failed to apply/import loader entry <id> (<name>)`, outer stack frames `…#<entryId>`, and `duplicate loader entry id: <id>` duplicates). dsh-safe extracts the broken plugin's package name and row id from them. Those five are the **dsh ≤ 0.1.5** shapes; 0.1.6 added two **structured** diagnostics that get their own parser (next paragraph).
+
+   **The two structured diagnostics of dsh ≥ 0.1.6** (parsed as structure, not guessed from free text): the tolerant warning `dsh: warning: N entries did not activate` followed by `<row id> (<package>): <reason>` lines, and the fatal diagnostic `dsh: startup failed: N required plugins did not activate` followed by `Failed plugins (N):` (`  <row id> (required)` / `    Package: <package>` / indented reason) and `Plugins waiting for services (N):`. Row id, package name, the **required marker** and the reason all come straight from upstream output, which is far more reliable than the old shapes; lines consumed by these structures are excluded from the legacy rules (otherwise `    Package: x` and `    Error: …` get read as package names `Package` / `Error` — measured with 0.17.0 against 0.1.7-rc.2).
+
+   **Required entries are never quarantined**: the `(required)` row ids in a fatal diagnostic (`webserver`, `connection`, `agent-loop`, …) are exactly the ones whose loss means "booted but unusable", so disabling them fixes nothing; they get the same protection as core dependencies, with no flag able to override it.
 
    **Exception — environment failures are never quarantined**: if stderr contains an errno-style environment error (`EADDRINUSE` for a taken port, `EACCES`/`EPERM` for permissions, `ECONNREFUSED`/`ENOTFOUND` for network, …), dsh-safe treats the failure as **not attributable to any plugin**: it writes no files at all and just passes the exit code through with an explanation. The reason is that an environment problem makes healthy plugins fail too — when webserver (the provider of `webServer`) cannot apply because port 3080 is held by another dsh instance, the plugins depending on it merely report `pending (waiting for service: webServer)`. Any quarantine decision made from that stderr is a misdiagnosis, and quarantine is a persistent write. Fix the environment and restart; the plugins stay enabled throughout.
 2. **Match against real rows**: it scans the profile patch, `$DSH_HOME/cordis.patch.yml` (home layer) and each bundle's patch to build a "row id ↔ plugin package" mapping; only rows that actually exist are disabled, avoiding collateral damage. Official bundles (`@deepseek-ai/dsh-base`, `dsh-web-app`, …) are **not** in the profile's `node_modules` — they live in the dsh installation's own directory, which is scanned too (those rows are marked internal: used only for package-name and source resolution, never for duplicate-source detection, so dedupe behaviour is unchanged).
 3. **Managed block writing**: it appends a marker-commented managed block at the end of the matching patch file (same convention as `dsh-mcp-config managed`), setting matched rows to `disabled: true`. Existing user content and comments are preserved; a fresh profile's `[]` template is correctly replaced with a block sequence.
 4. **Ledger & restore**: quarantine records live in `$DSH_HOME/dsh-safe/quarantine.json`. Once a plugin upgrade fixes the issue, `dsh-safe restore --profile web --all` removes the managed block and re-mounts the plugin (hot-applied for profiles with `patchReload: live`).
+
+### Read-only inspection (dsh ≥ 0.1.6)
+
+Since 0.1.6 upstream downgrades any non-required entry failure to a single warning line and lets startup succeed — the **quarantine path can no longer be triggered** (the only remaining fatal cases are required entries, which the rule above protects). The price is that plugins go silently missing: the feature is gone, upstream writes no report, and a GUI-launched dsh never shows that stderr line.
+
+dsh-safe therefore performs one extra **read-only inspection** on a successful boot: it parses `warning: N entries did not activate` and lists each inactive entry's row id, package name and reason, plus the repair entry point:
+
+```
+[dsh-safe] boot succeeded, but 1 plugin(s) did not activate (dsh 0.1.6+ fails only for required entries; the rest merely warn — the plugin is silently missing):
+  badplug (@acme/broken-plugin): failed to import
+[dsh-safe] no file was changed for the entries above; repair: dsh-safe repair <id>, interpret: dsh-safe explain.
+```
+
+The inspection is **read-only**: it does not touch the patch, the ledger or retries, behaves identically under `--dry-run`, and prints nothing at all when no entry is inactive. Repair with `dsh-safe repair <id>` (reinstall/upgrade through the `dsh plugin` pnpm channel) or by hand, then restart to verify.
 
 ### Let the AI agent in the web UI take over repairs (recommended)
 
@@ -108,7 +131,10 @@ The wrapped boot already owns keep-alive end to end: failing plugins are auto-qu
 dsh-safe is installed on this machine (a startup fuse for dsh). When the user
 reports a missing plugin feature, a boot warning, or misbehaving plugins:
 1. Run dsh-safe list --json to inspect the quarantine ledger (which plugins
-   are auto-disabled, why, when).
+   are auto-disabled, why, when). The "[dsh-safe] boot succeeded, but N
+   plugin(s) did not activate" line in the boot output is the read-only
+   inspection of dsh 0.1.6+ (those entries were not disabled, they simply
+   never mounted); treat it the same way in step 3.
 2. If interpretation is needed, run dsh-safe explain <id> (requires DSH_SAFE_AI_KEY).
 3. Repair based on the cause:
    - missing/stale package → dsh-safe repair <id> -y (reinstall latest)
@@ -134,7 +160,9 @@ Enabled by setting `DSH_SAFE_AI_KEY` (defaults to DeepSeek; OpenAI-compatible �
 - **`--allow-first-party` only applies to duplicate dedupe**: unmounting a duplicate source from the manifest still requires the explicit flag or interactive confirmation, and official sources are kept by default. The **quarantine path is unaffected by that flag** — no flag can disable a core dependency.
 - **Duplicate dedupe is guarded the same way**: official sources are kept by default, and removing an official bundle requires an explicit flag or interactive confirmation, so official rows like webserver are never unmounted as collateral.
 - **Environment failures are never quarantined**: an errno in stderr (`EADDRINUSE` / `EACCES` / `ECONNREFUSED`, …) means the failure cannot be attributed to a plugin; no file is written and the exit code is passed through.
+- **Required entries are never quarantined**: the `(required)` row ids in a dsh ≥ 0.1.6 fatal diagnostic get the same protection as core dependencies — they are the minimum for dsh to run at all, so disabling one only turns "fails to boot" into "booted but unusable"; no flag can override it.
 - **Startup-phase failures only**: module resolution failures / `apply` throws / timed-out service injection. Uncaught runtime exceptions are still handled by dsh's own fail-loud policy and are out of scope for boot quarantine.
+- **The read-only inspection never writes**: on the dsh ≥ 0.1.6 tolerant path it only parses and reports — no patch, ledger or manifest changes; `--dry-run` behaves exactly like a normal boot.
 - **Auditable**: every write records the reason and a timestamp; `--dry-run` previews which plugins would be disabled.
 - **Faithful pass-through**: when no broken plugin can be identified, the retry limit is exceeded, or for `dsh plugin` (pnpm forwarding), the exit code is passed through untouched and no files are modified.
 
@@ -143,7 +171,7 @@ Enabled by setting `DSH_SAFE_AI_KEY` (defaults to DeepSeek; OpenAI-compatible �
 - If the patch file itself fails YAML parsing (e.g. broken by hand-editing), plugins cannot be identified and the failure is passed through.
 - Rows inserted via `--patch` overlay layers are not part of the mapping (only the profile patch, the home patch and bundle patches are scanned).
 - To capture stderr, the wrapper pipes dsh's stderr (content is still echoed to the terminal in real time); stdout/stdin pass through unaffected.
-- Match patterns target the dsh 0.1.x error formats; a major dsh upgrade that changes them requires updating the parser. Mitigation: after update/-u upgrades dsh it runs a parser self-check — boots the new dsh with a throwaway profile and confirms failures are still recognized, warning right away on mismatch (`--no-verify` skips it).
+- Match patterns target the dsh 0.1.x error formats (the five free-text signatures of ≤ 0.1.5 plus the two structured diagnostics of ≥ 0.1.6); a major dsh upgrade that changes them requires updating the parser. Mitigation: after update/-u upgrades dsh it runs a parser self-check — boots the new dsh with a throwaway profile and confirms failures are still recognized, warning right away on mismatch (`--no-verify` skips it). Note that on dsh ≥ 0.1.6 that self-check reports "unverified" because the deliberately broken profile boots successfully — that is the expected tolerant behaviour, not a broken parser (the quarantine path has no trigger surface there, and the inspection path has its own tests).
 - Windows is best-effort: update / --self / list / restore are adapted (.cmd shim parsing, shelled npm/pnpm invocations); the wrapped boot resolves the node entry embedded in dsh's .cmd/.ps1 shim on PATH and spawns `node <entry>` directly (.exe runs as-is, unparseable shims fall back to a shelled spawn), sidestepping Node's ban on spawning .cmd files. Not yet verified end-to-end on a real Windows machine — feedback welcome.
 
 ## Development

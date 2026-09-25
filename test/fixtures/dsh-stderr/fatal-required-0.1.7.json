@@ -1,0 +1,4 @@
+{
+  "names": ["@acme/broken-plugin"],
+  "entryIds": ["badplug", "connection"]
+}

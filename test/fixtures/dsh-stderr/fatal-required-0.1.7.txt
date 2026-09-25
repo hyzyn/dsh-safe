@@ -1,0 +1,13 @@
+dsh: startup failed: 1 required plugin did not activate
+
+Failed plugins (1):
+  badplug
+    Package: @acme/broken-plugin
+    Error: boom
+    at file:///Users/me/.dsh/profiles/web/node_modules/@acme/broken-plugin/lib/index.js:3:11
+
+Plugins waiting for services (1):
+  Plugin                Missing services
+  connection (required)  webServer
+
+Full diagnostics: /Users/me/.dsh/logs/startup-2026-09-24T02-35-49.745Z-4d0219dc.log

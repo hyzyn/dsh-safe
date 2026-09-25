@@ -2,9 +2,14 @@
 
 中文 | [English](./README.en.md)
 
-DeepSeek Harness（DSH）的社区插件与 dsh 运行时不兼容时，`dsh web` 会**整体启动失败**——加载器把所有 patch 层拉平成同一棵加载树，任何一个插件 import 失败、`apply` 抛错、或等不到注入的服务，启动审计就会拒绝整棵树，进程退出。此时只能手动编辑 `cordis.patch.yml` 把坏插件禁用。
+> **通道适用性（先看这条）**：dsh **0.1.6 之前**（npm `latest` 目前仍是 0.1.5-rc.3）任何插件失败都会让启动整体失败，dsh-safe 的**自动隔离**在这条通道上依然有效。dsh **0.1.6 起**（`next` / `alpha` 通道，含 0.1.7-rc.x）官方改成只对 required 条目致命、其余条目失败仅告警且启动照常成功——此时 dsh-safe **不写任何文件**，只做**只读巡检**：把未激活的插件、原因与修复方式列出来。两种模式都在包装启动里自动选择，不需要配置。
+
+DeepSeek Harness（DSH）的社区插件与 dsh 运行时不兼容时，dsh **0.1.6 之前**会让 `dsh web` **整体启动失败**——加载器把所有 patch 层拉平成同一棵加载树，任何一个插件 import 失败、`apply` 抛错、或等不到注入的服务，启动审计就会拒绝整棵树，进程退出。此时只能手动编辑 `cordis.patch.yml` 把坏插件禁用。
 
 **dsh-safe 把这个手动动作自动化了**：包装运行 `dsh`，启动失败时从报错里识别坏插件，在 profile patch 里把对应行置为 `disabled: true`（记录进隔离台账），然后自动重试。坏插件只影响自己，dsh 照常启动。
+
+dsh **0.1.6 起**官方换了策略（`packages/boot/app-boot` 的 `auditStartupEntries`）：只有全局 required 条目（`agent-loop` / `webserver` / `modules` / `connection` / `headless-runner` / `acp` / `sdk-jsonrpc-server`）失败才致命，**其余条目失败只打一行 warning 就继续启动**。插件于是变成"静默缺席"：功能没了，而 `$DSH_HOME/logs/startup-*.log` 只对致命失败写、那行 stderr 警告是唯一线索（GUI 启动时甚至看不到）。dsh-safe 在这种情况下改做**只读巡检**——把 `warning: N entries did not activate` 整理成清单和修复指引，**不改 patch、不写台账、不重试**。
+
 
 ## 安装
 
@@ -93,12 +98,30 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 
 ## 工作原理
 
-1. **识别失败**：dsh 启动失败时，stderr 里有五类特征（`plugin(s) failed to load: …`、`N entries did not activate` 逐行失败、`failed to apply/import loader entry <id> (<name>)`、外层栈 `…#<entryId>`、`duplicate loader entry id: <id>` 重复挂载）。dsh-safe 从中提取坏插件的包名与行 id。
+1. **识别失败**：dsh 启动失败时，stderr 里有五类特征（`plugin(s) failed to load: …`、`N entries did not activate` 逐行失败、`failed to apply/import loader entry <id> (<name>)`、外层栈 `…#<entryId>`、`duplicate loader entry id: <id>` 重复挂载）。dsh-safe 从中提取坏插件的包名与行 id。这五类是 **dsh ≤ 0.1.5** 的报错形态；0.1.6 起多出两种**结构化**诊断，走独立解析（见下一条）。
+
+   **dsh ≥ 0.1.6 的两种结构化诊断**（独立解析，不靠正则猜自由文本）：宽容告警 `dsh: warning: N entries did not activate` + 每行 `<行id> (<包名>): <原因>`；致命诊断 `dsh: startup failed: N required plugins did not activate` + `Failed plugins (N):`（`  <行id> (required)` / `    Package: <包名>` / 缩进原因）与 `Plugins waiting for services (N):` 两个小节。行 id、包名、**required 标记**与原因都直接取自官方输出，比旧格式可靠；被这些结构消费掉的行会排除在旧规则之外（否则 `    Package: x` / `    Error: …` 会被读成假包名 `Package` / `Error`——0.17.0 在 0.1.7-rc.2 上实测如此）。
+
+   **required 条目永不隔离**：致命诊断里带 `(required)` 的行 id（`webserver` / `connection` / `agent-loop` 等）就是"启动了也等于没启动"的那几个，禁用它修不好任何问题，因此与核心依赖同等保护，任何旗标都不放开。
 
    **例外——环境类失败不隔离**：若 stderr 里出现 errno 形式的环境错误（`EADDRINUSE` 端口被占、`EACCES`/`EPERM` 权限、`ECONNREFUSED`/`ENOTFOUND` 网络等），dsh-safe 判定这次失败**不能归因到插件**，一律不写任何文件、直接透传退出码并说明原因。原因是：环境问题会让健康的插件也失败（例如 `webServer` 的提供者 webserver 因端口 3080 被另一个 dsh 实例占用而 apply 失败时，依赖它的插件只会表现为 `pending (waiting for service: webServer)`），此时任何隔离决定都是误判，而隔离是持久写入。修好环境后重启即可，插件始终保持启用。
 2. **对照真实行**：扫描 profile patch、`$DSH_HOME/cordis.patch.yml`（home 层）与各 bundle 的 patch，得到「行 id ↔ 插件包名」对照表；只禁用真实存在的行，避免误伤。官方 bundle（`@deepseek-ai/dsh-base`、`dsh-web-app` 等）**不在 profile 的 `node_modules` 里**，而是装在 dsh 自己的安装目录下——那里也会被扫描（标记为 internal，只用于包名与来源解析，不参与 duplicate 来源判定，去重行为不受影响）。
 3. **写入托管区块**：在对应 patch 文件末尾追加带标记注释的区块（与 `dsh-mcp-config managed` 同款约定），把命中的行置为 `disabled: true`。用户已有内容与注释原样保留；全新 profile 的 `[]` 模板会被正确替换成块序列。
 4. **台账与恢复**：隔离记录存 `$DSH_HOME/dsh-safe/quarantine.json`。插件升级修复后用 `dsh-safe restore --profile web --all` 摘除区块恢复挂载（`patchReload: live` 的 profile 热生效）。
+
+### 只读巡检（dsh ≥ 0.1.6）
+
+官方在 0.1.6 起把非 required 条目的失败降级为一行 warning，启动照常成功——**隔离路径再也不会被触发**（唯一还会致命的是 required 条目，而它们被上面的规则保护）。代价是插件静默缺席：功能没了、官方不落任何报告、GUI 启动时连那行 stderr 都看不到。
+
+dsh-safe 因此在启动成功时多做一次**只读巡检**：解析 `warning: N entries did not activate`，把每个未激活条目的行 id、包名、原因列出来，并给出修复入口。输出形如：
+
+```
+[dsh-safe] 启动成功，但有 1 个插件未激活（dsh 0.1.6+ 只对 required 条目致命，其余仅告警——插件会静默缺席）：
+  badplug (@acme/broken-plugin): failed to import
+[dsh-safe] 以上条目本次未改动任何文件；重装/升级: dsh-safe repair <id>，解读: dsh-safe explain。
+```
+
+巡检**只读**：不改 patch、不写台账、不重试，`--dry-run` 与正常启动行为一致；没有未激活条目时一个字都不输出。修复走 `dsh-safe repair <id>`（经 `dsh plugin` 的 pnpm 通道重装/升级）或手动处理，随后重启验证。
 
 ### AI 能力（可选）
 
@@ -116,6 +139,8 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 本机装有 dsh-safe（dsh 的启动保险丝）。当用户报告插件功能缺失、启动
 警告或插件行为异常时：
 1. 运行 dsh-safe list --json 查看隔离台账（哪些插件被自动禁用、原因、时间）。
+   启动输出里的"[dsh-safe] 启动成功，但有 N 个插件未激活"是 dsh 0.1.6+
+   的只读巡检清单（这些条目没被禁用，只是没挂载上），同样按第 3 步处理。
 2. 需要解读时运行 dsh-safe explain <id>（设置 DSH_SAFE_AI_KEY 后可用）。
 3. 按原因修复：
    - 包缺失/版本落后 → dsh-safe repair <id> -y（重装 latest）
@@ -133,7 +158,9 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 - **`--allow-first-party` 只作用于 duplicate 去重**：去重（从 manifest 移除重复挂载来源）仍保留显式旗标与交互确认，缺省保留官方来源；**隔离路径不受该旗标影响**，核心依赖没有任何旗标可以放开。
 - **duplicate 去重同受保护**：缺省保留官方来源，移除官方 bundle 需显式允许或交互确认，避免连带卸载 webserver 等官方行。
 - **环境类失败不隔离**：stderr 里出现 `EADDRINUSE` / `EACCES` / `ECONNREFUSED` 等 errno 时，判定失败不能归因到插件，一律不写任何文件并原样透传退出码。
+- **required 条目永不隔离**：dsh ≥ 0.1.6 的致命诊断里带 `(required)` 标记的行 id 与核心依赖同等保护——它是 dsh 跑起来的最低要求，禁用它只会把"启动失败"换成"启动了但不可用"，任何旗标都不放开。
 - **只动启动期失败**：模块解析失败 / `apply` 抛错 / 等不到注入服务。运行期的未捕获异常仍由 dsh 自身的 fail-loud 策略处理，不属于启动隔离范围。
+- **只读巡检不写盘**：dsh ≥ 0.1.6 的宽容启动路径只解析、只报告，不碰 patch / 台账 / manifest；`--dry-run` 与正常启动的巡检行为完全一致。
 - **可审计**：每次写入都带原因与时间戳；`--dry-run` 可以先看会禁用谁。
 - **原样透传**：识别不出坏插件、超过重试上限、`dsh plugin`（pnpm 转发）等情况，退出码原样透传，不做任何修改。
 
@@ -142,7 +169,7 @@ Error: dsh: plugin tree failed to load: failed to apply loader entry smoke-broke
 - patch 文件本身 YAML 解析错误（如手改坏了）时无法识别插件，只会透传。
 - `--patch` 覆盖层里插入的行不参与对照表（对照表只扫 profile patch、home patch 与 bundle patch）。
 - 为了捕获 stderr，包装器把 dsh 的 stderr 接到管道（内容仍实时回显到终端）；stdout/stdin 直通不受影响。
-- 本项目针对 dsh 0.1.x 的报错格式做匹配；dsh 大版本升级后格式变化时需要同步更新解析器。缓解：update/-u 升级 dsh 后会自动做解析器自校验——临时 profile 试启新版 dsh 并确认报错仍可识别，失配当场告警（`--no-verify` 跳过）。
+- 本项目针对 dsh 0.1.x 的报错格式做匹配（≤ 0.1.5 的五类自由文本特征 + ≥ 0.1.6 的两种结构化诊断）；dsh 大版本升级后格式变化时需要同步更新解析器。缓解：update/-u 升级 dsh 后会自动做解析器自校验——临时 profile 试启新版 dsh 并确认报错仍可识别，失配当场告警（`--no-verify` 跳过）。注意在 dsh ≥ 0.1.6 上，这个自校验会因"坏插件试启意外成功"而报未验证——那是宽容启动的预期行为，不是解析器坏了（此时隔离路径本就无触发面，巡检路径另有测试覆盖）。
 - Windows 为尽力支持：update / --self / list / restore 已适配（.cmd shim 解析、shell 方式调用 npm/pnpm）；包装启动会把 PATH 上 dsh 的 .cmd/.ps1 shim 解析出内嵌的 node 入口、改为 `node <入口>` 直接启动（.exe 直接运行，shim 解析失败退回 shell 方式），绕开 Node 禁止 spawn .cmd 的限制。尚未在真实 Windows 上端到端验证，欢迎反馈。
 
 ## 开发

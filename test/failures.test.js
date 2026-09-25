@@ -100,3 +100,85 @@ test('summarizeLine 压缩空白并截断', () => {
   assert.ok(!s.includes('\n'))
   assert.equal(summarizeLine(''), 'startup failure')
 })
+
+// ---- dsh ≥ 0.1.6 的结构化启动诊断（app-boot auditStartupEntries）----
+
+test('0.1.6+ 宽容告警：行 id 与包名都准确，required 为空', () => {
+  const stderr = [
+    'dsh: warning: 1 entry did not activate',
+    'broken-comm (@acme/broken-plugin): failed to import',
+  ].join('\n')
+  const { names, entryIds, required, inactive } = parseFailureReport(stderr)
+  assert.deepEqual(names.map(([n]) => n), ['@acme/broken-plugin'])
+  assert.deepEqual(entryIds.map(([id]) => id), ['broken-comm'])
+  assert.deepEqual(required, [])
+  assert.equal(inactive.length, 1)
+  assert.equal(inactive[0].required, false)
+  assert.equal(inactive[0].detail, 'failed to import')
+})
+
+test('0.1.6+ 致命诊断：Failed plugins 与 pending 表格都解析，required 显式标注', () => {
+  const stderr = [
+    'dsh: startup failed: 1 required plugin did not activate',
+    '',
+    'Failed plugins (1):',
+    '  badplug',
+    '    Package: @acme/broken-plugin',
+    '    Error: boom',
+    '    at file:///x/lib/index.js:3:11',
+    '',
+    'Plugins waiting for services (1):',
+    '  Plugin                Missing services',
+    '  connection (required)  webServer',
+    '',
+  ].join('\n')
+  const { names, entryIds, required, inactive } = parseFailureReport(stderr)
+  assert.deepEqual(names.map(([n]) => n), ['@acme/broken-plugin'])
+  assert.deepEqual(entryIds.map(([id]) => id).sort(), ['badplug', 'connection'])
+  assert.deepEqual(required, ['connection'])
+  const bad = inactive.find((item) => item.id === 'badplug')
+  assert.equal(bad.name, '@acme/broken-plugin')
+  assert.equal(bad.required, false)
+  assert.ok(bad.detail.includes('Error: boom'))
+  const pending = inactive.find((item) => item.id === 'connection')
+  assert.equal(pending.name, null)
+  assert.equal(pending.required, true)
+  assert.ok(pending.detail.includes('webServer'))
+  // 表格列头行（Plugin / Missing services）不是条目
+  assert.ok(!inactive.some((item) => item.id === 'Plugin'))
+})
+
+test('0.1.6+ 新格式不再产出 Package / Error 这类假包名（0.17.0 实测缺陷）', () => {
+  const stderr = [
+    'dsh: startup failed: 1 required plugin did not activate',
+    '',
+    'Failed plugins (1):',
+    '  webserver (required)',
+    '    Package: @deepseek-ai/dsh-host-webserver',
+    '    Error: listen EADDRINUSE: address already in use 0.0.0.0:3080',
+    '',
+  ].join('\n')
+  const { names, entryIds, environmental, required } = parseFailureReport(stderr)
+  assert.deepEqual(names.map(([n]) => n), ['@deepseek-ai/dsh-host-webserver'])
+  assert.ok(!names.some(([n]) => n === 'Package' || n === 'Error'))
+  assert.deepEqual(entryIds.map(([id]) => id), ['webserver'])
+  assert.deepEqual(required, ['webserver'])
+  // required 条目因端口被占而失败：仍是环境类失败，调用方不得隔离
+  assert.deepEqual(environmental.map(([label]) => label), ['webserver'])
+})
+
+test('0.1.6+ 诊断后跟的 "Full diagnostics:" 行不会被吃成条目详情', () => {
+  const stderr = [
+    'dsh: startup failed: 1 required plugin did not activate',
+    '',
+    'Failed plugins (1):',
+    '  webserver (required)',
+    '    Package: @deepseek-ai/dsh-host-webserver',
+    '    failed to import',
+    '',
+    'Full diagnostics: /Users/me/.dsh/logs/startup-x.log',
+  ].join('\n')
+  const { inactive } = parseFailureReport(stderr)
+  assert.equal(inactive.length, 1)
+  assert.equal(inactive[0].detail, 'failed to import')
+})
