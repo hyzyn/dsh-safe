@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { installFakeDsh, withPath } from '../test-utils/fakebin.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const BIN = join(ROOT, 'bin', 'dsh-safe.js')
@@ -39,17 +40,14 @@ function makeFixture(stderr) {
   writeFileSync(join(profileDir, 'package.json'), JSON.stringify({ name: 'dsh-profile-web', private: true }))
   const patchPath = join(profileDir, 'cordis.patch.yml')
   writeFileSync(patchPath, "- id: pet\n  name: '@linxin666/dsh-pet'\n- id: better-sidebar\n  name: 'dsh-better-sidebar'\n")
-  const dshBin = join(binDir, 'dsh')
-  writeFileSync(
-    dshBin,
-    `#!/usr/bin/env node
+  installFakeDsh(binDir, {
+    script: `#!/usr/bin/env node
 import { appendFileSync } from 'node:fs'
 appendFileSync(process.env.FAKE_DSH_CALLS, JSON.stringify(process.argv.slice(2)) + '\\n')
 process.stderr.write(${JSON.stringify(stderr)})
 process.exit(1)
 `,
-  )
-  chmodSync(dshBin, 0o755)
+  })
   return { home, binDir, patchPath }
 }
 
@@ -59,7 +57,7 @@ function runSafe(fx) {
     env: {
       ...process.env,
       DSH_HOME: fx.home,
-      PATH: `${fx.binDir}:${process.env.PATH}`,
+      PATH: withPath(fx.binDir),
       DSH_SAFE_LANG: 'zh',
       DSH_SAFE_NO_UPDATE_CHECK: '1', // 测试不依赖网络
       FAKE_DSH_CALLS: join(fx.home, 'calls'),

@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { installFakeDsh, withPath } from '../test-utils/fakebin.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const BIN = join(ROOT, 'bin', 'dsh-safe.js')
@@ -58,10 +59,13 @@ function makeFixture() {
   return { home, patchPath, stateFile, profileDir }
 }
 
-/** 写一个 fake dsh 可执行脚本：第 n 次运行按 scenarios[n-1] 输出并退出。 */
+/**
+ * 写一个 fake dsh：第 n 次运行按 scenarios[n-1] 输出并退出，运行次数记在 FAKE_STATE。
+ * 脚本本身是纯 node 脚本（两个平台共用），落盘布局由 installFakeDsh 按平台决定。
+ */
 function makeFakeDsh(home, scenarios) {
-  const binDir = join(home, 'bin')
-  const script = `#!/usr/bin/env node
+  return installFakeDsh(join(home, 'bin'), {
+    script: `#!/usr/bin/env node
 import { readFileSync, writeFileSync } from 'node:fs'
 const stateFile = process.env.FAKE_STATE
 let n = 0
@@ -73,11 +77,8 @@ const s = scenarios[n - 1] ?? { code: 0 }
 if (s.stderr) process.stderr.write(s.stderr)
 if (s.stdout) process.stdout.write(s.stdout)
 process.exit(s.code ?? 0)
-`
-  const path = join(binDir, 'dsh')
-  writeFileSync(path, script)
-  chmodSync(path, 0o755)
-  return path
+`,
+  })
 }
 
 function runSafe(home, args, extraEnv = {}) {
@@ -87,7 +88,7 @@ function runSafe(home, args, extraEnv = {}) {
       ...process.env,
       DSH_HOME: home,
       FAKE_STATE: join(home, 'fake-dsh-attempts'),
-      PATH: `${join(home, 'bin')}:${process.env.PATH}`,
+      PATH: withPath(join(home, 'bin')),
       DSH_SAFE_LANG: 'zh', // 固定语言，断言与宿主 locale 无关
       DSH_SAFE_NO_UPDATE_CHECK: '1', // 关闭新版提示，测试不依赖网络
       ...extraEnv,
@@ -211,30 +212,23 @@ test('集成：官方 bundle 装在 dsh 安装目录下时也纳入对照表（�
     writeFileSync(patchPath, "- id: gateway\n  config:\n    host: '0.0.0.0'\n")
     // 官方 bundle 只在 dsh 自己的安装目录下（profile/node_modules 里没有），且它声明的
     // 行没有 name：能认定 gateway 是核心依赖，只能靠收进来的这条 internal 行
-    const dshPkgDir = join(home, 'global', 'node_modules', '@deepseek-ai', 'dsh')
-    const officialBundleDir = join(dshPkgDir, 'node_modules', '@deepseek-ai', 'dsh-base')
-    mkdirSync(join(dshPkgDir, 'lib'), { recursive: true })
-    mkdirSync(officialBundleDir, { recursive: true })
-    writeFileSync(join(dshPkgDir, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.1.2-rc.1' }))
-    const dshBin = join(dshPkgDir, 'lib', 'bin.js')
-    writeFileSync(
-      dshBin,
-      `#!/usr/bin/env node
+    const { prefix, pkgDir } = installFakeDsh(join(home, 'global'), {
+      version: '0.1.2-rc.1',
+      script: `#!/usr/bin/env node
 process.stderr.write('Error: dsh: plugin tree failed to load: loader fibers failed\\n')
 process.stderr.write('    at file:///Users/me/.dsh/profiles/web/#gateway\\n')
 process.exit(1)
 `,
-    )
-    chmodSync(dshBin, 0o755)
-    mkdirSync(join(home, 'bin'), { recursive: true })
-    symlinkSync(dshBin, join(home, 'bin', 'dsh'))
+    })
+    const officialBundleDir = join(pkgDir, 'node_modules', '@deepseek-ai', 'dsh-base')
+    mkdirSync(officialBundleDir, { recursive: true })
     writeFileSync(
       join(officialBundleDir, 'package.json'),
       JSON.stringify({ name: '@deepseek-ai/dsh-base', dsh: { bundle: { patch: 'cordis.patch.yml' } } }),
     )
     writeFileSync(join(officialBundleDir, 'cordis.patch.yml'), '- insert:\n    - id: gateway\n      config: {}\n')
 
-    const result = runSafe(home, ['web'])
+    const result = runSafe(home, ['web'], { PATH: withPath(prefix) })
     assert.equal(result.status, 1, `stderr: ${result.stderr}`)
     assert.ok(result.stderr.includes('跳过核心依赖 gateway'))
     assert.ok(!result.stderr.includes('已禁用'))

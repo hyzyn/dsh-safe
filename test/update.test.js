@@ -1,12 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { applyManagedBlock, buildManagedBlock, MANAGED_START } from '../lib/patchfile.js'
 import { channelGaps, isNewerVersion } from '../lib/update.js'
+import { installFakeDsh, installFakePm, withPath } from '../test-utils/fakebin.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const BIN = join(ROOT, 'bin', 'dsh-safe.js')
@@ -18,33 +19,27 @@ const SELF_VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')
 /** 搭一个 fake 环境：npm 全局目录里的 dsh 包 + fake npm + 已隔离一个插件的 profile。 */
 function makeFixture() {
   const home = mkdtempSync(join(tmpdir(), 'dsh-safe-update-'))
-  const globalDir = join(home, 'global')
-  const pkgDir = join(globalDir, 'lib', 'node_modules', '@deepseek-ai', 'dsh')
-  mkdirSync(join(pkgDir, 'lib'), { recursive: true })
-  mkdirSync(join(home, 'bin'), { recursive: true })
-  const pkgJsonPath = join(pkgDir, 'package.json')
-  writeFileSync(pkgJsonPath, JSON.stringify({ name: PKG, version: OLD_VERSION, bin: { dsh: 'lib/bin.js' } }))
-  const dshBin = join(pkgDir, 'lib', 'bin.js')
-  writeFileSync(
-    dshBin,
-    `#!/usr/bin/env node
+  const binDir = join(home, 'bin')
+  // dsh 用 npm 全局安装布局——按平台生成，见 test-utils/fakebin.js
+  const { pkgJsonPath } = installFakeDsh(binDir, {
+    version: OLD_VERSION,
+    script: `#!/usr/bin/env node
 import { appendFileSync } from 'node:fs'
 if (process.env.FAKE_DSH_CALLS) appendFileSync(process.env.FAKE_DSH_CALLS, JSON.stringify(process.argv.slice(2)) + '\\n')
 if (process.env.FAKE_DSH_STDOUT) process.stdout.write(process.env.FAKE_DSH_STDOUT)
 process.exit(0)
 `,
-  )
-  chmodSync(dshBin, 0o755)
-
-  const binDir = join(home, 'bin')
-  symlinkSync(dshBin, join(binDir, 'dsh'))
+  })
 
   // fake npm：view 返回 dist-tags JSON——latest 取 FAKE_NPM_LATEST / FAKE_NPM_SELF_LATEST
   //（自身包缺省读真实 package.json → 视为最新），next 取 FAKE_NPM_NEXT、alpha 取
   // FAKE_NPM_ALPHA（缺省没有该键，即无通道差距）；install 只改写 fake dsh 的版本
-  const npmBin = join(binDir, 'npm')
-  writeFileSync(
-    npmBin,
+  //
+  // 它是被**直接 spawn** 的（spawnPmCapture 走 shell:true），不像 dsh 会被解析成
+  // `node <入口>`，所以 Windows 下必须由 installFakePm 生成真能跑的 .cmd。
+  installFakePm(
+    binDir,
+    'npm',
     `#!/usr/bin/env node
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 const args = process.argv.slice(2)
@@ -79,7 +74,6 @@ if (args[0] === 'install') {
 process.exit(1)
 `,
   )
-  chmodSync(npmBin, 0o755)
 
   // profile：用户行 + 托管区块（隔离了 badplug）+ 台账
   const profileDir = join(home, 'profiles', 'web')
@@ -107,7 +101,7 @@ process.exit(1)
 
 const commonEnv = (fx) => ({
   DSH_HOME: fx.home,
-  PATH: `${fx.binDir}:${process.env.PATH}`,
+  PATH: withPath(fx.binDir),
   DSH_SAFE_LANG: 'zh', // 固定语言，断言与宿主 locale 无关
   DSH_SAFE_NO_UPDATE_CHECK: '1', // 包装路径的新版提示不参与 update 测试
   FAKE_NPM_STATE: join(fx.home, 'npm-calls'),

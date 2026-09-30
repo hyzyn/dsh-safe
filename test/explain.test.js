@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { installFakeDsh, withPath } from '../test-utils/fakebin.js'
 
 process.env.DSH_SAFE_LANG = 'zh' // 本文件的 t() 断言固定中文（测试文件独立进程运行）
 
@@ -193,16 +194,18 @@ test('包装启动失败 → stderr 自动持久化并提示 explain', () => {
   const home = mkdtempSync(join(tmpdir(), 'dsh-safe-explain-cli-'))
   const binDir = join(home, 'bin')
   mkdirSync(join(home, 'profiles', 'web'), { recursive: true })
-  mkdirSync(binDir, { recursive: true })
-  const dshBin = join(binDir, 'dsh')
-  writeFileSync(dshBin, `#!/usr/bin/env node\nprocess.stderr.write('Error: custom boom\\n')\nprocess.exit(1)\n`)
-  chmodSync(dshBin, 0o755)
+  const { prefix } = installFakeDsh(binDir, {
+    script: `#!/usr/bin/env node
+process.stderr.write('Error: custom boom\\n')
+process.exit(1)
+`,
+  })
   const result = spawnSync(process.execPath, [BIN, 'web'], {
     encoding: 'utf8',
     env: {
       ...process.env,
       DSH_HOME: home,
-      PATH: `${binDir}:${process.env.PATH}`,
+      PATH: withPath(prefix),
       DSH_SAFE_LANG: 'zh',
       DSH_SAFE_NO_UPDATE_CHECK: '1',
     },
