@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { installFakeDsh, withPath } from '../test-utils/fakebin.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const BIN = join(ROOT, 'bin', 'dsh-safe.js')
@@ -13,18 +14,14 @@ const BIN = join(ROOT, 'bin', 'dsh-safe.js')
 function makeFixture() {
   const home = mkdtempSync(join(tmpdir(), 'dsh-safe-passthrough-'))
   const binDir = join(home, 'bin')
-  mkdirSync(binDir, { recursive: true })
   mkdirSync(join(home, 'profiles', 'web'), { recursive: true })
-  const dshBin = join(binDir, 'dsh')
-  writeFileSync(
-    dshBin,
-    `#!/usr/bin/env node
+  installFakeDsh(binDir, {
+    script: `#!/usr/bin/env node
 import { appendFileSync } from 'node:fs'
 appendFileSync(process.env.FAKE_DSH_CALLS, JSON.stringify(process.argv.slice(2)) + '\\n')
 process.exit(0)
 `,
-  )
-  chmodSync(dshBin, 0o755)
+  })
   return { home, binDir }
 }
 
@@ -34,7 +31,7 @@ function runSafe(fx, args) {
     env: {
       ...process.env,
       DSH_HOME: fx.home,
-      PATH: `${fx.binDir}:${process.env.PATH}`,
+      PATH: withPath(fx.binDir),
       DSH_SAFE_LANG: 'zh',
       DSH_SAFE_NO_UPDATE_CHECK: '1', // 关闭新版提示，测试不依赖网络
       FAKE_DSH_CALLS: join(fx.home, 'calls'),
