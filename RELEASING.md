@@ -5,8 +5,9 @@
 ## 发布门槛（每次 tag 前过一遍）
 
 1. `npm test` 全绿。本地 `npm publish` 已挂 `prepublishOnly` 闸；CI 在发布前还会再跑一次。
-2. **真机启动**：用自己日常的 profile 真实跑一次 `dsh-safe web`。隔离、去重、patch 写入这些路径只有真实启动才走得通——单测绿不等于启动没问题。
-3. 动了 patch 写入、quarantine 台账、manifest 编辑的改动，额外跑一次 `dsh-safe --dry-run` 看一眼会写什么。
+2. **看 main 上那次 CI 的 windows job**：测试要过 macos / ubuntu / **windows** 三个平台（见 [README 开发一节](./README.md#开发)）。注意 tag 触发的 Release workflow 只在 `ubuntu-latest` 上跑 `npm test`——**它不覆盖 Windows**。所以"发版前 CI 绿"要认的是 main 上那次 push CI（三个平台齐全），不是 tag 那次。
+3. **真机启动**：用自己日常的 profile 真实跑一次 `dsh-safe web`。隔离、去重、patch 写入这些路径只有真实启动才走得通——单测绿不等于启动没问题。
+4. 动了 patch 写入、quarantine 台账、manifest 编辑的改动，额外跑一次 `dsh-safe --dry-run` 看一眼会写什么。
 
 ## 攒批
 

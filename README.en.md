@@ -172,7 +172,7 @@ Enabled by setting `DSH_SAFE_AI_KEY` (defaults to DeepSeek; OpenAI-compatible �
 - Rows inserted via `--patch` overlay layers are not part of the mapping (only the profile patch, the home patch and bundle patches are scanned).
 - To capture stderr, the wrapper pipes dsh's stderr (content is still echoed to the terminal in real time); stdout/stdin pass through unaffected.
 - Match patterns target the dsh 0.1.x error formats (the five free-text signatures of ≤ 0.1.5 plus the two structured diagnostics of ≥ 0.1.6); a major dsh upgrade that changes them requires updating the parser. Mitigation: after update/-u upgrades dsh it runs a parser self-check — boots the new dsh with a throwaway profile and confirms failures are still recognized, warning right away on mismatch (`--no-verify` skips it). Note that on dsh ≥ 0.1.6 that self-check reports "unverified" because the deliberately broken profile boots successfully — that is the expected tolerant behaviour, not a broken parser (the quarantine path has no trigger surface there, and the inspection path has its own tests).
-- Windows is best-effort: update / --self / list / restore are adapted (.cmd shim parsing, shelled npm/pnpm invocations); the wrapped boot resolves the node entry embedded in dsh's .cmd/.ps1 shim on PATH and spawns `node <entry>` directly (.exe runs as-is, unparseable shims fall back to a shelled spawn), sidestepping Node's ban on spawning .cmd files. Not yet verified end-to-end on a real Windows machine — feedback welcome.
+- Windows is best-effort: update / --self / list / restore are adapted (.cmd shim parsing, shelled npm/pnpm invocations); the wrapped boot resolves the node entry embedded in dsh's .cmd/.ps1 shim on PATH and spawns `node <entry>` directly (.exe runs as-is, unparseable shims fall back to a shelled spawn), sidestepping Node's ban on spawning .cmd files. This machinery is covered in full on `windows-latest` (see [Development](#development)), though against a fake dsh — the complete install flow with a real dsh still depends on user feedback.
 
 ## Development
 
@@ -180,7 +180,13 @@ Enabled by setting `DSH_SAFE_AI_KEY` (defaults to DeepSeek; OpenAI-compatible �
 npm test        # node:test unit tests + fake-dsh integration tests
 ```
 
-For the release process (gate, batching, prereleases) see [RELEASING.md](./RELEASING.md) (in Chinese).
+The CI matrix is macos / ubuntu / **windows** × node 20/22, and all three platforms run the full `npm test`.
+
+Integration tests launch the real `bin/dsh-safe.js`, so they must first build a fake dsh — and **that build has to be platform-specific**: on POSIX it is an extension-less shebang script plus a symlink and the executable bit; Windows has no shebang mechanism and cannot execute an extension-less file, so it needs a `.cmd` shim, and PATH must be joined with `path.delimiter` rather than a hardcoded `:` (a hardcoded colon makes the whole PATH look like a single entry). A hand-built POSIX-only fixture fails silently on Windows — **when a change is Windows-only, your local run and the macos/ubuntu CI will both stay green**.
+
+For new integration tests use `installFakeDsh` / `installFakePm` from [`test-utils/fakebin.js`](./test-utils/fakebin.js). Note their spawn paths differ: dsh's shim is only **parsed** (spawning `node <entry>` instead, never through a shell), whereas package managers are spawned **directly** — so on Windows the latter must be a genuinely executable `.cmd` plus `.js`, and a merely parseable shape is not enough. `test/fakebin.test.js` validates both fixture shapes on any platform via `platform` injection.
+
+For Windows-related logic, **trust the `windows-latest` CI result, not a local green run** — the common thread in this class of bug is that you cannot work it out locally. Release gate: see [RELEASING.md](./RELEASING.md) (in Chinese).
 
 ## License
 

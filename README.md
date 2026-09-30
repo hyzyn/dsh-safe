@@ -170,7 +170,7 @@ dsh-safe 因此在启动成功时多做一次**只读巡检**：解析 `warning:
 - `--patch` 覆盖层里插入的行不参与对照表（对照表只扫 profile patch、home patch 与 bundle patch）。
 - 为了捕获 stderr，包装器把 dsh 的 stderr 接到管道（内容仍实时回显到终端）；stdout/stdin 直通不受影响。
 - 本项目针对 dsh 0.1.x 的报错格式做匹配（≤ 0.1.5 的五类自由文本特征 + ≥ 0.1.6 的两种结构化诊断）；dsh 大版本升级后格式变化时需要同步更新解析器。缓解：update/-u 升级 dsh 后会自动做解析器自校验——临时 profile 试启新版 dsh 并确认报错仍可识别，失配当场告警（`--no-verify` 跳过）。注意在 dsh ≥ 0.1.6 上，这个自校验会因"坏插件试启意外成功"而报未验证——那是宽容启动的预期行为，不是解析器坏了（此时隔离路径本就无触发面，巡检路径另有测试覆盖）。
-- Windows 为尽力支持：update / --self / list / restore 已适配（.cmd shim 解析、shell 方式调用 npm/pnpm）；包装启动会把 PATH 上 dsh 的 .cmd/.ps1 shim 解析出内嵌的 node 入口、改为 `node <入口>` 直接启动（.exe 直接运行，shim 解析失败退回 shell 方式），绕开 Node 禁止 spawn .cmd 的限制。尚未在真实 Windows 上端到端验证，欢迎反馈。
+- Windows 为尽力支持：update / --self / list / restore 已适配（.cmd shim 解析、shell 方式调用 npm/pnpm）；包装启动会把 PATH 上 dsh 的 .cmd/.ps1 shim 解析出内嵌的 node 入口、改为 `node <入口>` 直接启动（.exe 直接运行，shim 解析失败退回 shell 方式），绕开 Node 禁止 spawn .cmd 的限制。这些机器逻辑已在 `windows-latest` 上全量覆盖（见[开发](#开发)），但用的是假 dsh 搭台——真实 dsh 的完整安装流程仍以用户反馈为准。
 
 ## 开发
 
@@ -178,7 +178,13 @@ dsh-safe 因此在启动成功时多做一次**只读巡检**：解析 `warning:
 npm test        # node:test 单元测试 + fake dsh 集成测试
 ```
 
-发布流程（发布门槛、攒批、prerelease）见 [RELEASING.md](./RELEASING.md)。
+CI 矩阵是 macos / ubuntu / **windows** × node 20/22，三个平台都跑 `npm test` 全量。
+
+集成测试会启动真的 `bin/dsh-safe.js`，得先造一个假 dsh，而**造法必须分平台**：POSIX 是无扩展名 shebang 脚本 + symlink + 可执行位；Windows 没有 shebang 机制、无扩展名文件也不可执行，只能用 `.cmd` shim，PATH 还得用 `path.delimiter` 而不是写死的 `:`（写死会让整条 PATH 被当成一个目录项）。手搭 POSIX-only 的 fixture 在 Windows 上会静默失效——**改动只在 Windows 生效时，本地与 macos/ubuntu CI 会全绿**。
+
+新增集成测试请用 [`test-utils/fakebin.js`](./test-utils/fakebin.js) 的 `installFakeDsh` / `installFakePm`。注意两者的 spawn 路径不同：dsh 的 shim 只被**解析**（改走 `node <入口>`，不经过 shell），而包管理器是被**直接 spawn** 的，所以 Windows 下它必须是真能执行的 `.cmd` + `.js`，光"形状可被解析"不够。`test/fakebin.test.js` 用 `platform` 注入在任意平台校验 fixture 的两种形态。
+
+动了 Windows 相关逻辑，**以 `windows-latest` 上的 CI 结果为准，不要以本地绿灯为准**——这类问题的共性是本地算不出来。发布门槛见 [RELEASING.md](./RELEASING.md)。
 
 ## License
 
