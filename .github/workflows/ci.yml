@@ -21,3 +21,26 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+
+  # Windows 专项：shell 引号化 / PATH 解析这类只在 Windows 生效的逻辑，上面的
+  # macos+ubuntu 矩阵永远跑不到（issue #1 就是这么漏掉的）。
+  #
+  # 只跑平台无关的测试文件，不跑 `npm test` 全量：多数测试用 POSIX shebang 脚本 +
+  # symlink 搭 fake dsh/npm（test/update.test.js、integration、explain、passthrough、
+  # env-failure），在 Windows 上无法执行，全量跑会因无关原因变红、反而掩盖真正的
+  # Windows 回归。移植那批 fixture 是独立任务。
+  windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: 平台相关测试（Windows 下含真实 cmd.exe 端到端）
+        run: node --test test/pmspawn.test.js test/dshpaths.test.js test/shim.test.js
